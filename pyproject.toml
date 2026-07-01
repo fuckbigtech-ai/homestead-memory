@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fbt-memory"
+version = "0.0.1"
+description = "Verifiable, local-first AI memory. Own your mind — and prove it never rotted."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Kinetic Labs" }]
+keywords = ["ai", "memory", "local-first", "agents", "verification", "rag", "homestead"]
+classifiers = [
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+# Core is stdlib-only. qmd (hybrid retrieval) is an optional external CLI dependency,
+# invoked as a subprocess; the store degrades to a direct markdown scan without it.
+dependencies = []
+
+[project.optional-dependencies]
+api = ["fastapi>=0.110", "uvicorn>=0.27"]
+
+[project.scripts]
+fbt = "fbt_memory.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
