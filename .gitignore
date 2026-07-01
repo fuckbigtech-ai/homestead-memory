@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.env
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.DS_Store
+# local benchmark data (LongMemEval is 264MB — never commit)
+benchmarks/data/
+.fbt-scratch/
