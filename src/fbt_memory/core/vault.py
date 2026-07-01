@@ -194,13 +194,24 @@ def build_mtime_map(vault: Path | str | None = None) -> dict:
 
 
 def iter_notes(vault: Path | str | None = None):
-    """Yield (path, rel) for every non-excluded .md note."""
+    """Yield (path, rel) for every non-excluded .md note.
+
+    Uses os.walk with in-place directory pruning so we NEVER descend into dotdirs
+    (.git, .smart-env, .venv) or raw/archive — a plain rglob walks those huge trees
+    for nothing and turns a seconds-long scan into minutes on a real repo."""
     vault = _resolve(vault)
-    for p in sorted(vault.rglob("*.md")):
-        rel = p.relative_to(vault)
-        if is_excluded(rel):
-            continue
-        yield p, rel
+    for dirpath, dirnames, filenames in os.walk(vault):
+        dirnames[:] = sorted(
+            d for d in dirnames if not d.startswith(".") and d not in EXCLUDE_DIR_PARTS
+        )
+        for fn in sorted(filenames):
+            if not fn.endswith(".md"):
+                continue
+            p = Path(dirpath) / fn
+            rel = p.relative_to(vault)
+            if is_excluded(rel):
+                continue
+            yield p, rel
 
 
 # ---- canonical wikilink parser (single source of truth) ----

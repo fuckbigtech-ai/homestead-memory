@@ -71,13 +71,12 @@ def cmd_ask(args) -> int:
 
 
 def cmd_verify(args) -> int:
-    # The star primitive. Wired in the next build step (core/verify.py):
-    #   - weighted memory-integrity score /100, nonzero exit on rot
-    #   - `--demo`: plant a contradiction and watch the gate surface the current
-    #     value and FAIL the stale one ("watch it catch its own rot").
-    print("fbt verify: the verification gate lands in the next build step (core/verify.py).",
-          file=sys.stderr)
-    return 2
+    from .core import verify
+    if args.demo:
+        return verify.run_demo()
+    rep = verify.verify_vault(args.path)
+    verify.print_report(rep, quiet=args.quiet)
+    return 0 if rep["ok"] else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -94,7 +93,8 @@ def build_parser() -> argparse.ArgumentParser:
     pi.set_defaults(func=cmd_init)
 
     pg = sub.add_parser("ingest", help="index the vault (qmd hybrid retrieval)")
-    pg.add_argument("path", nargs="?", default=".")
+    pg.add_argument("path", nargs="?", default=None,
+                    help="vault directory (default: $FBT_VAULT, else cwd)")
     pg.set_defaults(func=cmd_ingest)
 
     pa = sub.add_parser("ask", help="retrieve + answer")
@@ -102,9 +102,11 @@ def build_parser() -> argparse.ArgumentParser:
     pa.set_defaults(func=cmd_ask)
 
     pv = sub.add_parser("verify", help="score memory integrity /100 (nonzero exit on rot)")
-    pv.add_argument("path", nargs="?", default=".")
+    pv.add_argument("path", nargs="?", default=None,
+                    help="vault directory (default: $FBT_VAULT, else cwd)")
     pv.add_argument("--demo", action="store_true",
                     help="plant a contradiction and watch the gate catch it")
+    pv.add_argument("--quiet", action="store_true", help="print only the score line")
     pv.set_defaults(func=cmd_verify)
 
     return p
