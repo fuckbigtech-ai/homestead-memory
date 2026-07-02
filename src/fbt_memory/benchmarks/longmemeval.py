@@ -41,6 +41,7 @@ _norm_re = re.compile(r"[^a-z0-9 ]+")
 _OLLAMA_API = "http://localhost:11434/api/generate"
 _READER = None   # ("ollama", model) | ("cmd", shellcmd) | ("cc",)  — set in main()
 _JUDGE = None    # ("ollama", model) | None (None -> normalized-inclusion scoring)
+_CONTEXT = "full"  # "full" (whole session) | "span" (precise relevant turns, low-token)
 
 
 def _ollama_generate(model: str, prompt: str, temperature: float = 0.0, timeout: int = 180) -> str:
@@ -211,6 +212,36 @@ def _norm(s) -> str:
     return _norm_re.sub(" ", str(s if s is not None else "").lower()).strip()
 
 
+def _est_tokens(text: str) -> int:
+    """Cheap, consistent token estimate (~4 chars/token). We report tokens-per-query
+    so 'best AND cheapest' is a measured claim, not a slogan."""
+    return (len(text) + 3) // 4
+
+
+def _span(text: str, query: str, max_chars: int = 1000) -> str:
+    """Precise-span extraction: return only the turns relevant to the query (plus a
+    neighbor for context), not the whole session. Cuts reader tokens ~10x AND reduces
+    noise — the recall→QA gap is the reader drowning in full transcripts."""
+    terms = {w for w in _WORD.findall(query.lower()) if len(w) > 2}
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if not terms or not lines:
+        return text[:max_chars]
+    scores = [sum(ln.lower().count(t) for t in terms) for ln in lines]
+    if not any(scores):
+        return text[:max_chars]
+    keep = set()
+    for i, s in enumerate(scores):
+        if s:
+            keep.update({i - 1, i, i + 1})           # matched turn + neighbors
+    picked = sorted(x for x in keep if 0 <= x < len(lines))
+    out, total = [], 0
+    for i in picked:
+        if total + len(lines[i]) + 1 > max_chars:
+            break
+        out.append(lines[i]); total += len(lines[i]) + 1
+    return "\n".join(out) or text[:max_chars]
+
+
 def scores_correct(pred: str, gold: str) -> bool:
     """Normalized inclusion: the gold answer (or all its salient tokens) appears
     in the prediction. Fast first pass; an LLM judge is the rigorous upgrade."""
@@ -271,9 +302,12 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
             if f is None:
                 return h["snippet"]  # last resort; _resolve_note should always hit
             txt = f.read_text(errors="replace").split("---", 2)[-1].strip()  # drop frontmatter
-            return txt[:8000]  # sessions run up to 20 turns; a tight cap drops the answer turn
+            # 'span' hands the reader only the relevant turns (cheap + low-noise);
+            # 'full' hands the whole session (accurate but token-heavy).
+            return _span(txt, q, 1000) if _CONTEXT == "span" else txt[:8000]
         context = "\n\n".join(
             f"[{h['title']} · {_note_date(h['rel'], root)}]\n{_body(h)}" for h in hits)
+        ctx_tokens = _est_tokens(context)
         prompt = (f"Answer the question in a few words using ONLY the context. "
                   f"If facts changed over time, use the MOST RECENT.\n\n"
                   f"CONTEXT:\n{context}\n\nQUESTION: {q}\nANSWER:")
@@ -288,7 +322,7 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
     return {"id": item.get("question_id"), "type": item.get("question_type"),
             "q": q, "gold": gold, "pred": pred,
             "correct": judge_correct(q, gold, pred), "rot": rot["score"],
-            "recall": recall_hit, "engine": ing.get("engine")}
+            "recall": recall_hit, "ctx_tokens": ctx_tokens, "engine": ing.get("engine")}
 
 
 def run(data: list[dict], modes: list[str], n: int | None,
@@ -318,9 +352,11 @@ def run(data: list[dict], modes: list[str], n: int | None,
         n = len(rs) or 1
         acc = sum(r["correct"] for r in rs) / n
         rec = sum(r.get("recall") for r in rs) / n
+        toks = [r.get("ctx_tokens", 0) for r in rs]
         rot_vals = [r["rot"] for r in rs if r.get("rot") is not None]
         summary[m] = {"n": len(rs), "accuracy": round(100 * acc, 1),
                       "recall_at_k": round(100 * rec, 1),
+                      "avg_ctx_tokens": round(sum(toks) / n),
                       "avg_rotbench": round(sum(rot_vals) / len(rot_vals), 1) if rot_vals else 0}
     return {"summary": summary, "results": results}
 
@@ -343,9 +379,12 @@ def main(argv=None) -> int:
                     help="ollama:<model> to LLM-judge correctness (else normalized-inclusion)")
     ap.add_argument("--checkpoint", default=None,
                     help="write partial results JSON after every question (crash-safe)")
+    ap.add_argument("--context", choices=["full", "span"], default="full",
+                    help="full session (accurate, token-heavy) vs precise span (cheap, low-noise)")
     args = ap.parse_args(argv)
 
-    global _READER, _JUDGE
+    global _READER, _JUDGE, _CONTEXT
+    _CONTEXT = args.context
     if args.reader:
         _READER = (("ollama", args.reader[7:]) if args.reader.startswith("ollama:")
                    else ("cc",) if args.reader == "cc" else ("cmd", args.reader))
@@ -367,8 +406,8 @@ def main(argv=None) -> int:
     print("\n=== RESULTS ===")
     for m, s in out["summary"].items():
         label = "A (qmd baseline)" if m == "a" else "B (qmd + temporal rerank)"
-        print(f"  {label}:  QA {s['accuracy']}%  ·  retrieval recall@k {s['recall_at_k']}%  "
-              f"(n={s['n']}, RotBench {s['avg_rotbench']}/100)")
+        print(f"  {label}:  QA {s['accuracy']}%  ·  recall@k {s['recall_at_k']}%  ·  "
+              f"~{s['avg_ctx_tokens']} ctx tokens/q  (n={s['n']}, RotBench {s['avg_rotbench']}/100)")
     if "a" in out["summary"] and "b" in out["summary"]:
         delta = out["summary"]["b"]["accuracy"] - out["summary"]["a"]["accuracy"]
         print(f"  A→B temporal delta:  {delta:+.1f} points")
