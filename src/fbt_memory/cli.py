@@ -123,7 +123,7 @@ def cmd_verify(args) -> int:
     from .core import verify
     if args.demo:
         return verify.run_demo()
-    rep = verify.verify_vault(args.path)
+    rep = verify.verify_vault(args.path, deep=args.deep)
     verify.print_report(rep, quiet=args.quiet)
     return 0 if rep["ok"] else 1
 
@@ -173,6 +173,8 @@ def build_parser() -> argparse.ArgumentParser:
                     help="vault directory (default: $FBT_VAULT, else cwd)")
     pv.add_argument("--demo", action="store_true",
                     help="plant a contradiction and watch the gate catch it")
+    pv.add_argument("--deep", action="store_true",
+                    help="also run retrieval-resilience + fixtures + freshness checks")
     pv.add_argument("--quiet", action="store_true", help="print only the score line")
     pv.set_defaults(func=cmd_verify)
 
