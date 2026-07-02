@@ -224,10 +224,19 @@ def scores_correct(pred: str, gold: str) -> bool:
 
 
 # ---------------------------------------------------------------------- one question
+def _evidence_indices(item: dict) -> set[int]:
+    """Which session indices hold the answer (from answer_session_ids) — the ground
+    truth for retrieval recall, computed with NO reader (reader-independent)."""
+    ans = set(item.get("answer_session_ids") or [])
+    hay = item.get("haystack_session_ids") or []
+    return {i for i, sid in enumerate(hay) if sid in ans}
+
+
 def run_question(item: dict, mode: str, k: int = 6) -> dict:
     sessions, _ = _sessions_and_dates(item)
     q = item["question"]
     gold = item.get("answer", "")
+    evidence = _evidence_indices(item)
     with tempfile.TemporaryDirectory(prefix="lme-") as d:
         root = Path(d)
         build_question_vault(item, root)
@@ -246,6 +255,13 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
                 h["_b"] = (h["score"] or 0.0) + 0.15 * rec
             hits.sort(key=lambda h: h["_b"], reverse=True)
         hits = hits[:k]
+        # Reader-independent retrieval recall: did top-k include an evidence session?
+        retrieved_idx = set()
+        for h in hits:
+            m = re.search(r"session-(\d+)", h["rel"])
+            if m:
+                retrieved_idx.add(int(m.group(1)))
+        recall_hit = (not evidence) or bool(evidence & retrieved_idx)
         # Feed the reader the FULL retrieved note body (the memory the system stored),
         # not qmd's ~350-char snippet — on LongMemEval the answer is often a single
         # sentence buried in a long session, which a truncated snippet drops. Cap per
@@ -272,7 +288,7 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
     return {"id": item.get("question_id"), "type": item.get("question_type"),
             "q": q, "gold": gold, "pred": pred,
             "correct": judge_correct(q, gold, pred), "rot": rot["score"],
-            "engine": ing.get("engine")}
+            "recall": recall_hit, "engine": ing.get("engine")}
 
 
 def run(data: list[dict], modes: list[str], n: int | None,
@@ -299,9 +315,13 @@ def run(data: list[dict], modes: list[str], n: int | None,
     summary = {}
     for m in modes:
         rs = results[m]
-        acc = sum(r["correct"] for r in rs) / len(rs) if rs else 0.0
+        n = len(rs) or 1
+        acc = sum(r["correct"] for r in rs) / n
+        rec = sum(r.get("recall") for r in rs) / n
+        rot_vals = [r["rot"] for r in rs if r.get("rot") is not None]
         summary[m] = {"n": len(rs), "accuracy": round(100 * acc, 1),
-                      "avg_rotbench": round(sum(r["rot"] for r in rs) / len(rs), 1) if rs else 0}
+                      "recall_at_k": round(100 * rec, 1),
+                      "avg_rotbench": round(sum(rot_vals) / len(rot_vals), 1) if rot_vals else 0}
     return {"summary": summary, "results": results}
 
 
@@ -347,7 +367,8 @@ def main(argv=None) -> int:
     print("\n=== RESULTS ===")
     for m, s in out["summary"].items():
         label = "A (qmd baseline)" if m == "a" else "B (qmd + temporal rerank)"
-        print(f"  {label}:  {s['accuracy']}%  (n={s['n']}, avg RotBench {s['avg_rotbench']}/100)")
+        print(f"  {label}:  QA {s['accuracy']}%  ·  retrieval recall@k {s['recall_at_k']}%  "
+              f"(n={s['n']}, RotBench {s['avg_rotbench']}/100)")
     if "a" in out["summary"] and "b" in out["summary"]:
         delta = out["summary"]["b"]["accuracy"] - out["summary"]["a"]["accuracy"]
         print(f"  A→B temporal delta:  {delta:+.1f} points")
