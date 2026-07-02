@@ -21,6 +21,7 @@ Ported from the author's personal `vault_mem_lib.py`; MIT.
 """
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
 import subprocess
@@ -193,23 +194,56 @@ def build_mtime_map(vault: Path | str | None = None) -> dict:
     return mtime
 
 
+def load_ignore(vault: Path) -> list[str]:
+    """Read `<vault>/.fbtignore` (gitignore-ish: prefix-dir patterns ending in '/',
+    or fnmatch globs). Lets users quarantine generated/report notes so a verifier
+    never flags its own ecosystem's output (the generated-artifact-quarantine rule)."""
+    f = vault / ".fbtignore"
+    if not f.exists():
+        return []
+    return [ln.strip() for ln in f.read_text(errors="replace").splitlines()
+            if ln.strip() and not ln.strip().startswith("#")]
+
+
+def _ignored(rel_posix: str, patterns: list[str]) -> bool:
+    for pat in patterns:
+        if pat.endswith("/"):
+            if rel_posix == pat[:-1] or rel_posix.startswith(pat):
+                return True
+        elif fnmatch.fnmatch(rel_posix, pat) or fnmatch.fnmatch(rel_posix, pat.rstrip("/") + "/*"):
+            return True
+    return False
+
+
 def iter_notes(vault: Path | str | None = None):
     """Yield (path, rel) for every non-excluded .md note.
 
     Uses os.walk with in-place directory pruning so we NEVER descend into dotdirs
     (.git, .smart-env, .venv) or raw/archive — a plain rglob walks those huge trees
-    for nothing and turns a seconds-long scan into minutes on a real repo."""
+    for nothing and turns a seconds-long scan into minutes on a real repo. Honors
+    a `.fbtignore` in the vault root for user-declared exclusions."""
     vault = _resolve(vault)
+    patterns = load_ignore(vault)
+    dir_pats = [p[:-1] for p in patterns if p.endswith("/")]
     for dirpath, dirnames, filenames in os.walk(vault):
-        dirnames[:] = sorted(
-            d for d in dirnames if not d.startswith(".") and d not in EXCLUDE_DIR_PARTS
-        )
+        rel_dir = Path(dirpath).relative_to(vault).as_posix()
+        kept = []
+        for d in sorted(dirnames):
+            if d.startswith(".") or d in EXCLUDE_DIR_PARTS:
+                continue
+            child = d if rel_dir == "." else f"{rel_dir}/{d}"
+            if any(child == dp or child.startswith(dp + "/") for dp in dir_pats):
+                continue
+            kept.append(d)
+        dirnames[:] = kept
         for fn in sorted(filenames):
             if not fn.endswith(".md"):
                 continue
             p = Path(dirpath) / fn
             rel = p.relative_to(vault)
             if is_excluded(rel):
+                continue
+            if patterns and _ignored(rel.as_posix(), patterns):
                 continue
             yield p, rel
 
