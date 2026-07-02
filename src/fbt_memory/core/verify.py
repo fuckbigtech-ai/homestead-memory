@@ -23,6 +23,7 @@ is the demo: `fbt verify --demo`.
 """
 from __future__ import annotations
 
+import json
 import re
 import tempfile
 from dataclasses import dataclass
@@ -69,8 +70,54 @@ def _stale_body(text: str, updated: str | None) -> str | None:
     return None
 
 
-def verify_vault(vault: Path | str | None = None) -> dict:
-    """Run the integrity checks over a vault. Returns a report dict."""
+def deep_checks(vault: Path | str | None = None) -> list[Finding]:
+    """Extra 'full' checks (fbt verify --deep):
+      1. fallback resilience — retrieval must survive the index being down (the
+         direct-scan must still find a known term). "Your memory works even when
+         the fancy index is gone" is the whole ownership pitch.
+      2. fixtures.json — user-defined golden recall (<vault>/.fbt/fixtures.json:
+         [{"query","expect"}]) — a regression suite for "this must stay findable".
+      3. qmd freshness — WARN if qmd is available but the vault was never ingested.
+    """
+    from . import index
+    v = vaultlib._resolve(vault)
+    out: list[Finding] = []
+    notes = list(vaultlib.iter_notes(v))
+
+    if notes:
+        txt0 = notes[0][0].read_text(errors="replace").lower()
+        words = [w for w in index._WORD.findall(txt0) if len(w) >= 6]
+        probe = words[0] if words else notes[0][1].stem
+        if not index._direct_scan(probe, v, 3):
+            out.append(Finding("fail", "fallback_resilience", "(retrieval)",
+                               f"direct-scan found nothing for a known term {probe!r} — "
+                               f"memory would not survive qmd being down"))
+
+    fx = v / ".fbt" / "fixtures.json"
+    if fx.exists():
+        try:
+            cases = json.loads(fx.read_text())
+        except Exception:
+            cases = []
+            out.append(Finding("warn", "fixtures", ".fbt/fixtures.json", "unparseable"))
+        for c in cases or []:
+            query, expect = c.get("query", ""), c.get("expect", "")
+            if not query or not expect:
+                continue
+            hits = index.search(query, v, 8)
+            if not any(expect == Path(h["rel"]).stem or expect in h["rel"] for h in hits):
+                out.append(Finding("fail", "fixture_miss", expect,
+                                   f"query {query!r} did not retrieve the expected note"))
+
+    if index.qmd_available() and notes and not index._collection_exists(index.collection_name(v)):
+        out.append(Finding("warn", "not_indexed", "(retrieval)",
+                           "qmd available but vault not ingested — run `fbt ingest` for hybrid retrieval"))
+    return out
+
+
+def verify_vault(vault: Path | str | None = None, deep: bool = False) -> dict:
+    """Run the integrity checks over a vault. Returns a report dict. deep=True adds
+    the retrieval-resilience + fixtures + freshness families."""
     targets = vaultlib.valid_link_targets(vault)
     findings: list[Finding] = []
     notes = list(vaultlib.iter_notes(vault))
@@ -107,6 +154,9 @@ def verify_vault(vault: Path | str | None = None) -> dict:
         stale = _stale_body(txt, f.get("updated"))
         if stale:
             findings.append(Finding("warn", "stale_body", rp, stale))
+
+    if deep:
+        findings += deep_checks(vault)
 
     fails = [x for x in findings if x.level == "fail"]
     warns = [x for x in findings if x.level == "warn"]

@@ -31,12 +31,27 @@ import re
 import shutil
 import subprocess
 import tempfile
+import urllib.request
 from pathlib import Path
 
 from ..core import index, verify
 
 _CC = str(Path.home() / ".local/bin/cc")
 _norm_re = re.compile(r"[^a-z0-9 ]+")
+_OLLAMA_API = "http://localhost:11434/api/generate"
+_READER = None   # ("ollama", model) | ("cmd", shellcmd) | ("cc",)  — set in main()
+_JUDGE = None    # ("ollama", model) | None (None -> normalized-inclusion scoring)
+
+
+def _ollama_generate(model: str, prompt: str, temperature: float = 0.0, timeout: int = 180) -> str:
+    """Deterministic (temp-0) generation via the local ollama HTTP API — reliable and
+    reproducible, unlike the flat-rate cloud path that timed out mid-batch."""
+    body = json.dumps({"model": model, "prompt": prompt, "stream": False,
+                       "options": {"temperature": temperature}}).encode()
+    req = urllib.request.Request(_OLLAMA_API, data=body,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.loads(r.read()).get("response", "").strip()
 
 
 # --------------------------------------------------------------------------- data
@@ -125,15 +140,15 @@ def _note_date(path: str, root: Path) -> str:
 
 
 # ------------------------------------------------------------------------- reader
-def read(prompt: str, timeout: int = 120) -> str:
-    """Call the reader. One slow/failed call returns "" (a wrong-but-scoreable
-    prediction) instead of crashing the whole batch — feedback_batch_llm_resilience."""
-    env = os.environ.get("FBT_READER")
-    if not env and not Path(_CC).exists():
-        raise RuntimeError("no reader: set FBT_READER or install cc")
+def read(prompt: str, timeout: int = 150) -> str:
+    """Call the configured reader. One slow/failed call returns "" (a wrong-but-
+    scoreable prediction) instead of crashing the batch — feedback_batch_llm_resilience."""
+    kind = _READER or (("ollama", "llama3.1:latest") if shutil.which("ollama") else ("cc",))
     try:
-        if env:
-            r = subprocess.run(env.split(), input=prompt, capture_output=True,
+        if kind[0] == "ollama":
+            return _ollama_generate(kind[1], prompt, 0.0, timeout)
+        if kind[0] == "cmd":
+            r = subprocess.run(kind[1].split(), input=prompt, capture_output=True,
                                text=True, timeout=timeout)
             return (r.stdout or "").strip()
         r = subprocess.run([_CC, "-p", prompt, "--output-format", "json"],
@@ -143,10 +158,26 @@ def read(prompt: str, timeout: int = 120) -> str:
             return json.loads(r.stdout).get("result", "").strip()
         except Exception:
             return (r.stdout or "").strip()
-    except subprocess.TimeoutExpired:
-        return ""
     except Exception:
         return ""
+
+
+def judge_correct(question: str, gold: str, pred: str) -> bool:
+    """LLM-judge if configured (more accurate than string inclusion), else fall back
+    to normalized-inclusion. Judge runs at temp 0 for reproducibility."""
+    if not _JUDGE:
+        return scores_correct(pred, gold)
+    if not pred.strip():
+        return False
+    prompt = ("You are grading a memory system. Is the PREDICTED answer correct given "
+              "the GOLD answer? Ignore wording/format differences; judge the facts. "
+              "Reply with exactly YES or NO.\n\n"
+              f"QUESTION: {question}\nGOLD: {gold}\nPREDICTED: {pred}\nCorrect?")
+    try:
+        v = _ollama_generate(_JUDGE[1], prompt, 0.0, 60).strip().upper()
+        return v.startswith("Y")
+    except Exception:
+        return scores_correct(pred, gold)
 
 
 # -------------------------------------------------------------------------- score
@@ -205,7 +236,7 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
             pass
     return {"id": item.get("question_id"), "type": item.get("question_type"),
             "q": q, "gold": gold, "pred": pred,
-            "correct": scores_correct(pred, gold), "rot": rot["score"],
+            "correct": judge_correct(q, gold, pred), "rot": rot["score"],
             "engine": ing.get("engine")}
 
 
@@ -240,7 +271,20 @@ def main(argv=None) -> int:
                     help="shuffle before sampling (LongMemEval files are type-sorted, so "
                          "a raw -n grabs one question type — shuffle for a representative mix)")
     ap.add_argument("--seed", type=int, default=42, help="deterministic shuffle seed")
+    ap.add_argument("--reader", default=None,
+                    help="ollama:<model> (temp-0, reliable) | cc | else $FBT_READER")
+    ap.add_argument("--judge", default=None,
+                    help="ollama:<model> to LLM-judge correctness (else normalized-inclusion)")
     args = ap.parse_args(argv)
+
+    global _READER, _JUDGE
+    if args.reader:
+        _READER = (("ollama", args.reader[7:]) if args.reader.startswith("ollama:")
+                   else ("cc",) if args.reader == "cc" else ("cmd", args.reader))
+    elif os.environ.get("FBT_READER"):
+        _READER = ("cmd", os.environ["FBT_READER"])
+    if args.judge:
+        _JUDGE = ("ollama", args.judge[7:] if args.judge.startswith("ollama:") else args.judge)
 
     data = SYNTHETIC if args.synthetic else load_dataset(args.data)
     if args.shuffle:
