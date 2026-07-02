@@ -316,19 +316,25 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
         # query-type router work); using the label measures the technique's ceiling.
         qtype = item.get("question_type", "")
         qdate = item.get("question_date", "") or "unknown"
+        # A good memory knows what it DOESN'T know — LongMemEval includes abstention
+        # questions where the right answer is "not enough information". Forcing a guess
+        # tanks those (verify-don't-hope applied to reading), so every prompt permits it.
+        ABSTAIN = ("If the context does not actually contain enough information to answer, "
+                   "respond exactly 'not enough information' — do NOT guess.")
         if qtype == "temporal-reasoning":
             instr = ("Reason step by step: list the relevant events WITH their dates from the "
-                     "context, then compute the answer relative to CURRENT DATE. Then give the "
-                     "final answer in a few words on a line starting 'ANSWER:'.")
+                     "context, then compute the answer relative to CURRENT DATE. " + ABSTAIN +
+                     " End with the final answer on a line starting 'ANSWER:'.")
         elif qtype == "multi-session":
-            instr = ("The question may ask 'how many' or a total. Find EVERY relevant item across "
-                     "ALL context blocks, list them, then count or sum. Give the final answer on a "
-                     "line starting 'ANSWER:'.")
+            instr = ("The question may ask 'how many' or a total. Find every relevant item across "
+                     "the context, list them, then count or sum ONLY items actually present. " +
+                     ABSTAIN + " End with the final answer on a line starting 'ANSWER:'.")
         elif qtype == "knowledge-update":
-            instr = ("Several values may appear over time; use the MOST RECENT (latest date). "
-                     "Give the final answer in a few words on a line starting 'ANSWER:'.")
+            instr = ("Several values may appear over time; use the MOST RECENT (latest date). " +
+                     ABSTAIN + " End with the final answer on a line starting 'ANSWER:'.")
         else:
-            instr = "Answer in a few words using ONLY the context, on a line starting 'ANSWER:'."
+            instr = ("Answer in a few words using ONLY the context. " + ABSTAIN +
+                     " End with the final answer on a line starting 'ANSWER:'.")
         prompt = (f"{instr}\nCURRENT DATE: {qdate}\n\n"
                   f"CONTEXT:\n{context}\n\nQUESTION: {q}")
         raw = read(prompt)
