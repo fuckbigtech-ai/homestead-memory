@@ -62,3 +62,23 @@ Reproduce any run: see `benchmarks/README.md`.
   answer is often one sentence in a long session, so the snippet dropped it. Caps A and B at the
   same ceiling → delta 0 (rerank can't help when the context can't hold the answer).
 - **Fix (run 5):** feed the reader the FULL retrieved note body (≤1800 chars/note), not the snippet.
+
+## Run 6 — THE NUMBER (path bug fixed) ✅
+
+- reader `glm-5.2:cloud`, judge `deepseek-v4-pro:cloud`, n=100 stratified, checkpointed, 0 errors.
+- **A (baseline) 69.0% · B (temporal) 70.0% · delta +1.0** · RotBench 100/100.
+- Per-type (A): single-session-assistant 100%, knowledge-update 86%, single-session-user 83%,
+  temporal-reasoning 66%, single-session-preference 50%, multi-session 48%.
+- **Root cause of the earlier 25-30%:** qmd normalizes `_`→`-` in its `qmd://` URIs, so notes
+  written `session_000.md` never matched the retrieved `session-000.md` → `_body`/`_note_date`
+  silently fell back to a 350-char snippet on EVERY multi-turn note. Fixed: hyphenated filenames
+  + `_resolve_note()` (-/_ tolerant + glob-by-stem). Verified on the exact failing case (reader
+  now sees the evidence in 8000 chars, not 350).
+- Journey: 25 → 26 → 29 → 30 → **69**, every step from reading actual failures, not re-rolling.
+
+### Honest caveats (before quoting this publicly)
+- **Oracle split** (evidence-only, no distractors) — easier than the `_s` set Mem0 (49%) and Zep
+  (63.8%) report on. NOT apples-to-apples yet. The headline comparison run is `_s` with distractors.
+- Temporal delta is +1.0 here; oracle rarely buries the current-value session below top-k, so the
+  rerank has little to fix. The `_s` set is where it should earn its delta.
+- n=100 of 500. Full-500 `_s` run is the publishable figure.
