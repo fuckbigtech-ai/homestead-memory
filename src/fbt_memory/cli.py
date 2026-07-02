@@ -130,7 +130,8 @@ def cmd_verify(args) -> int:
 
 def cmd_serve(args) -> int:
     from .api import server
-    server.serve(args.path, host=args.host, port=args.port)
+    server.serve(args.path, host=args.host, port=args.port,
+                 require_auth=not args.no_auth, allow_remote=args.allow_remote)
     return 0
 
 
@@ -180,6 +181,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="vault directory (default: $FBT_VAULT, else cwd)")
     ps.add_argument("--host", default="127.0.0.1")
     ps.add_argument("--port", type=int, default=8848)
+    ps.add_argument("--no-auth", action="store_true",
+                    help="disable the bearer token (trusted single-user local use only)")
+    ps.add_argument("--allow-remote", action="store_true",
+                    help="permit binding a non-loopback host (exposes memory to the network)")
     ps.set_defaults(func=cmd_serve)
 
     return p
