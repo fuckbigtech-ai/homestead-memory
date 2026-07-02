@@ -181,8 +181,9 @@ def judge_correct(question: str, gold: str, pred: str) -> bool:
 
 
 # -------------------------------------------------------------------------- score
-def _norm(s: str) -> str:
-    return _norm_re.sub(" ", (s or "").lower()).strip()
+def _norm(s) -> str:
+    # gold answers are sometimes ints/floats (counts, durations) — coerce to str.
+    return _norm_re.sub(" ", str(s if s is not None else "").lower()).strip()
 
 
 def scores_correct(pred: str, gold: str) -> bool:
@@ -240,16 +241,27 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
             "engine": ing.get("engine")}
 
 
-def run(data: list[dict], modes: list[str], n: int | None) -> dict:
+def run(data: list[dict], modes: list[str], n: int | None,
+        checkpoint: Path | None = None) -> dict:
     items = data[:n] if n else data
     results = {m: [] for m in modes}
     for m in modes:
         for it in items:
-            res = run_question(it, m)
+            # Batch-level resilience: NOTHING a single question does can kill the run
+            # (feedback_batch_llm_resilience). A failed question scores as incorrect.
+            try:
+                res = run_question(it, m)
+            except Exception as e:
+                res = {"id": it.get("question_id"), "type": it.get("question_type"),
+                       "q": it.get("question", ""), "gold": it.get("answer", ""),
+                       "pred": "", "correct": False, "rot": None,
+                       "engine": None, "error": f"{type(e).__name__}: {e}"}
             results[m].append(res)
-            mark = "✓" if res["correct"] else "✗"
+            mark = "✓" if res["correct"] else ("!" if res.get("error") else "✗")
             print(f"  [{m.upper()}] {mark} {res['type']:<22} q={res['q'][:48]!r} "
-                  f"pred={res['pred'][:40]!r}")
+                  f"pred={res['pred'][:40]!r}", flush=True)
+            if checkpoint:  # persist after every question — a crash never wastes the run
+                checkpoint.write_text(json.dumps(results))
     summary = {}
     for m in modes:
         rs = results[m]
@@ -275,6 +287,8 @@ def main(argv=None) -> int:
                     help="ollama:<model> (temp-0, reliable) | cc | else $FBT_READER")
     ap.add_argument("--judge", default=None,
                     help="ollama:<model> to LLM-judge correctness (else normalized-inclusion)")
+    ap.add_argument("--checkpoint", default=None,
+                    help="write partial results JSON after every question (crash-safe)")
     args = ap.parse_args(argv)
 
     global _READER, _JUDGE
@@ -292,8 +306,10 @@ def main(argv=None) -> int:
         random.Random(args.seed).shuffle(data)
     modes = ["a", "b"] if args.mode == "both" else [args.mode]
     print(f"LongMemEval — {'synthetic' if args.synthetic else args.data} · "
-          f"{args.n or len(data)} questions · modes={modes}\n")
-    out = run(data, modes, args.n)
+          f"{args.n or len(data)} questions · modes={modes} · "
+          f"reader={_READER} judge={_JUDGE}\n")
+    ckpt = Path(args.checkpoint) if args.checkpoint else None
+    out = run(data, modes, args.n, checkpoint=ckpt)
     print("\n=== RESULTS ===")
     for m, s in out["summary"].items():
         label = "A (qmd baseline)" if m == "a" else "B (qmd + temporal rerank)"
