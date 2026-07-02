@@ -125,21 +125,28 @@ def _note_date(path: str, root: Path) -> str:
 
 
 # ------------------------------------------------------------------------- reader
-def read(prompt: str) -> str:
+def read(prompt: str, timeout: int = 120) -> str:
+    """Call the reader. One slow/failed call returns "" (a wrong-but-scoreable
+    prediction) instead of crashing the whole batch — feedback_batch_llm_resilience."""
     env = os.environ.get("FBT_READER")
-    if env:
-        r = subprocess.run(env.split(), input=prompt, capture_output=True,
-                           text=True, timeout=180)
-        return (r.stdout or "").strip()
-    if Path(_CC).exists():
+    if not env and not Path(_CC).exists():
+        raise RuntimeError("no reader: set FBT_READER or install cc")
+    try:
+        if env:
+            r = subprocess.run(env.split(), input=prompt, capture_output=True,
+                               text=True, timeout=timeout)
+            return (r.stdout or "").strip()
         r = subprocess.run([_CC, "-p", prompt, "--output-format", "json"],
-                           capture_output=True, text=True, timeout=180,
+                           capture_output=True, text=True, timeout=timeout,
                            stdin=subprocess.DEVNULL)
         try:
             return json.loads(r.stdout).get("result", "").strip()
         except Exception:
             return (r.stdout or "").strip()
-    raise RuntimeError("no reader: set FBT_READER or install cc")
+    except subprocess.TimeoutExpired:
+        return ""
+    except Exception:
+        return ""
 
 
 # -------------------------------------------------------------------------- score
@@ -173,8 +180,9 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
         if mode == "b":  # temporal rerank: most-recent relevant sessions first
             hits.sort(key=lambda h: _note_date(h["rel"], root), reverse=True)
         hits = hits[:k]
-        context = "\n\n".join(f"[{h['title']} · {_note_date(h['rel'], root)}] {h['snippet']}"
-                              for h in hits)
+        context = "\n\n".join(
+            f"[{h['title']} · {_note_date(h['rel'], root)}] {h['snippet'][:350]}"
+            for h in hits)
         prompt = (f"Answer the question in a few words using ONLY the context. "
                   f"If facts changed over time, use the MOST RECENT.\n\n"
                   f"CONTEXT:\n{context}\n\nQUESTION: {q}\nANSWER:")
