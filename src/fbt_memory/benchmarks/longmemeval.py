@@ -332,6 +332,11 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
         elif qtype == "knowledge-update":
             instr = ("Several values may appear over time; use the MOST RECENT (latest date). " +
                      ABSTAIN + " End with the final answer on a line starting 'ANSWER:'.")
+        elif qtype == "single-session-preference":
+            # Preference/advice is open-ended — there's always enough to give a
+            # preference-aware suggestion, so NO abstention (it over-triggers here).
+            instr = ("Give a helpful suggestion that reflects the user's stated preferences and "
+                     "situation from the context. End with the final answer on a line starting 'ANSWER:'.")
         else:
             instr = ("Answer in a few words using ONLY the context. " + ABSTAIN +
                      " End with the final answer on a line starting 'ANSWER:'.")
