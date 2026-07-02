@@ -51,3 +51,14 @@ conclusion. Claiming "temporal helps" here would be reading signal out of noise.
    split. Then compare against Mem0 (~49%) and Zep (~63.8%).
 
 Reproduce any run: see `benchmarks/README.md`.
+
+## Run 4 — first STABLE number (n=100, frontier reader + independent judge)
+
+- reader `glm-5.2:cloud`, judge `deepseek-v4-pro:cloud`, n=100 stratified, checkpointed, 0 crashes.
+- **A 25.0% · B 25.0% · delta +0.0** · RotBench 100.
+- Per-type (A): knowledge-update 36%, temporal-reasoning 28%, multi-session 19%, single-session ~17-20%.
+- **Diagnosis:** low + zero delta = a RETRIEVAL-GRANULARITY bug, not the memory model. The
+  reader was fed qmd's ~350-char snippet, not the full retrieved session — on LongMemEval the
+  answer is often one sentence in a long session, so the snippet dropped it. Caps A and B at the
+  same ceiling → delta 0 (rerank can't help when the context can't hold the answer).
+- **Fix (run 5):** feed the reader the FULL retrieved note body (≤1800 chars/note), not the snippet.
