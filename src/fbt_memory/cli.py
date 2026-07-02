@@ -51,6 +51,17 @@ def cmd_init(args) -> int:
     else:
         (root / "welcome.md").write_text(STARTER_NOTE, encoding="utf-8")
         print(f"scaffolded a new vault at {root}  (created welcome.md)")
+    ignore = root / ".fbtignore"
+    if not ignore.exists():
+        ignore.write_text(
+            "# .fbtignore — paths fbt-memory should NOT treat as memory notes.\n"
+            "# A trailing / excludes a whole directory; otherwise it's a glob.\n"
+            "# Keep generated/report output here so `fbt verify` never flags it.\n"
+            "# examples:\n"
+            "# reports/\n"
+            "# **/*.generated.md\n",
+            encoding="utf-8",
+        )
     print("\nnext:")
     print(f"  export FBT_VAULT={root}")
     print("  fbt ingest .   # index it")
