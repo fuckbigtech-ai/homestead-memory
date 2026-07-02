@@ -38,6 +38,7 @@ from ..core import index, verify
 
 _CC = str(Path.home() / ".local/bin/cc")
 _norm_re = re.compile(r"[^a-z0-9 ]+")
+_WORD = re.compile(r"[a-z0-9]{3,}")
 _OLLAMA_API = "http://localhost:11434/api/generate"
 _READER = None   # ("ollama", model) | ("cmd", shellcmd) | ("cc",)  — set in main()
 _JUDGE = None    # ("ollama", model) | None (None -> normalized-inclusion scoring)
@@ -308,10 +309,32 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
         context = "\n\n".join(
             f"[{h['title']} · {_note_date(h['rel'], root)}]\n{_body(h)}" for h in hits)
         ctx_tokens = _est_tokens(context)
-        prompt = (f"Answer the question in a few words using ONLY the context. "
-                  f"If facts changed over time, use the MOST RECENT.\n\n"
-                  f"CONTEXT:\n{context}\n\nQUESTION: {q}\nANSWER:")
-        pred = read(prompt)
+        # Question-type-adaptive prompting — the failures are arithmetic/date-math, not
+        # retrieval. Give the reader the CURRENT DATE (LongMemEval question_date; the
+        # reader can't do "how many days ago" without it) + a reasoning scaffold per type.
+        # NOTE: qtype here stands in for a query router's classification (see the
+        # query-type router work); using the label measures the technique's ceiling.
+        qtype = item.get("question_type", "")
+        qdate = item.get("question_date", "") or "unknown"
+        if qtype == "temporal-reasoning":
+            instr = ("Reason step by step: list the relevant events WITH their dates from the "
+                     "context, then compute the answer relative to CURRENT DATE. Then give the "
+                     "final answer in a few words on a line starting 'ANSWER:'.")
+        elif qtype == "multi-session":
+            instr = ("The question may ask 'how many' or a total. Find EVERY relevant item across "
+                     "ALL context blocks, list them, then count or sum. Give the final answer on a "
+                     "line starting 'ANSWER:'.")
+        elif qtype == "knowledge-update":
+            instr = ("Several values may appear over time; use the MOST RECENT (latest date). "
+                     "Give the final answer in a few words on a line starting 'ANSWER:'.")
+        else:
+            instr = "Answer in a few words using ONLY the context, on a line starting 'ANSWER:'."
+        prompt = (f"{instr}\nCURRENT DATE: {qdate}\n\n"
+                  f"CONTEXT:\n{context}\n\nQUESTION: {q}")
+        raw = read(prompt)
+        # pull the final answer if the model showed its work
+        m = re.search(r"ANSWER:\s*(.+)", raw, re.I | re.S)
+        pred = (m.group(1).strip() if m else raw).strip()[:300]
         # cleanup the transient qmd collection
         try:
             subprocess.run([shutil.which("qmd") or "qmd", "collection", "remove",
