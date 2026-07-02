@@ -59,15 +59,36 @@ def cmd_init(args) -> int:
 
 
 def cmd_ingest(args) -> int:
-    from .core import index
+    from .core import index, temporal
     rep = index.ingest(args.path)
     if rep["engine"] == "none":
         print(rep["note"], file=sys.stderr)
-        return 0
-    tail = " ".join(rep.get("embed_tail") or [])
-    print(f"indexed vault into qmd collection '{rep['collection']}'  {tail}".rstrip())
-    print("try:  fbt ask \"<your question>\"")
-    return 0 if rep["ok"] else 1
+    else:
+        tail = " ".join(rep.get("embed_tail") or [])
+        print(f"indexed vault into qmd collection '{rep['collection']}'  {tail}".rstrip())
+    t = temporal.build(args.path)
+    print(f"temporal: {t['entries']} dated changes across {t['notes_with_history']} notes "
+          f"→ {t['db']}")
+    print("try:  fbt ask \"<question>\"   |   fbt history <note>")
+    return 0
+
+
+def cmd_history(args) -> int:
+    from .core import temporal
+    rows = (temporal.as_of(args.note, args.as_of, vault=args.path)
+            if args.as_of else temporal.history(args.note, vault=args.path))
+    if not rows:
+        print(f"no recorded history for '{args.note}' "
+              f"(run `fbt ingest` first to build the temporal sidecar).", file=sys.stderr)
+        return 1
+    header = f"history of '{args.note}'" + (f" as of {args.as_of}" if args.as_of else "")
+    print(header + ":\n")
+    for r in rows:
+        transition = (f"  [{r['field']}: {r['old_val']} → {r['new_val']}]"
+                      if r["field"] else "")
+        print(f"  {r['valid_date']}{transition}")
+        print(f"     {r['text']}")
+    return 0
 
 
 def cmd_ask(args) -> int:
@@ -120,6 +141,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="vault directory (default: $FBT_VAULT, else cwd)")
     pa.add_argument("-k", type=int, default=5, help="number of passages to retrieve")
     pa.set_defaults(func=cmd_ask)
+
+    ph = sub.add_parser("history", help="show a note's recorded change history (temporal)")
+    ph.add_argument("note", help="note stem or relpath")
+    ph.add_argument("path", nargs="?", default=None,
+                    help="vault directory (default: $FBT_VAULT, else cwd)")
+    ph.add_argument("--as-of", dest="as_of", default=None, metavar="YYYY-MM-DD",
+                    help="what was recorded on/before this date")
+    ph.set_defaults(func=cmd_history)
 
     pv = sub.add_parser("verify", help="score memory integrity /100 (nonzero exit on rot)")
     pv.add_argument("path", nargs="?", default=None,
