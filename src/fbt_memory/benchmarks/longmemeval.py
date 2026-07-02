@@ -225,11 +225,18 @@ def main(argv=None) -> int:
     src.add_argument("--synthetic", action="store_true",
                      help="run the built-in synthetic LongMemEval-format set (pipeline validation)")
     src.add_argument("--data", help="path to a LongMemEval JSON file")
-    ap.add_argument("-n", type=int, default=None, help="limit to first N questions")
+    ap.add_argument("-n", type=int, default=None, help="limit to N questions")
     ap.add_argument("--mode", choices=["a", "b", "both"], default="both")
+    ap.add_argument("--shuffle", action="store_true",
+                    help="shuffle before sampling (LongMemEval files are type-sorted, so "
+                         "a raw -n grabs one question type — shuffle for a representative mix)")
+    ap.add_argument("--seed", type=int, default=42, help="deterministic shuffle seed")
     args = ap.parse_args(argv)
 
     data = SYNTHETIC if args.synthetic else load_dataset(args.data)
+    if args.shuffle:
+        import random
+        random.Random(args.seed).shuffle(data)
     modes = ["a", "b"] if args.mode == "both" else [args.mode]
     print(f"LongMemEval — {'synthetic' if args.synthetic else args.data} · "
           f"{args.n or len(data)} questions · modes={modes}\n")
