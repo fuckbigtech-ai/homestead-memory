@@ -125,15 +125,36 @@ def build_question_vault(item: dict, root: Path) -> None:
             f"**{t.get('role','user')}:** {t.get('content','')}" for t in turns
             if isinstance(t, dict)
         )
-        note = (f"---\nname: session_{i:03d}\ndate: {date}\nstatus: reference\n"
+        # Hyphen, not underscore: qmd normalizes '_'→'-' in its qmd:// URI, so an
+        # underscore filename won't round-trip (rel from search != file on disk) and
+        # every body read silently falls back to the truncated snippet.
+        note = (f"---\nname: session-{i:03d}\ndate: {date}\nstatus: reference\n"
                 f"updated: {date}\n---\n\n# Session {i} ({date})\n\n{body}\n")
-        (root / f"session_{i:03d}.md").write_text(note, encoding="utf-8")
+        (root / f"session-{i:03d}.md").write_text(note, encoding="utf-8")
+
+
+def _resolve_note(root: Path, rel: str) -> Path | None:
+    """Map a retrieval rel-path to the real file on disk, tolerating qmd's '_'→'-'
+    URI normalization (else reads silently fail and fall back to a truncated snippet)."""
+    p = root / rel
+    if p.exists():
+        return p
+    stem = Path(rel).stem
+    for cand in (stem, stem.replace("-", "_"), stem.replace("_", "-")):
+        f = root / f"{cand}.md"
+        if f.exists():
+            return f
+    matches = [q for q in root.glob("*.md") if q.stem.replace("_", "-") == stem.replace("_", "-")]
+    return matches[0] if matches else None
 
 
 def _note_date(path: str, root: Path) -> str:
+    f = _resolve_note(root, path)
+    if not f:
+        return ""
     try:
         from ..core import vault as vaultlib
-        fm = vaultlib.parse_frontmatter((root / path).read_text(errors="replace"))
+        fm = vaultlib.parse_frontmatter(f.read_text(errors="replace"))
         return (fm["fields"].get("date") or fm["fields"].get("updated") or "") if fm else ""
     except Exception:
         return ""
@@ -230,11 +251,10 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
         # sentence buried in a long session, which a truncated snippet drops. Cap per
         # note so k notes fit a reasonable reader window.
         def _body(h):
-            try:
-                txt = (root / h["rel"]).read_text(errors="replace")
-                txt = txt.split("---", 2)[-1].strip()  # drop frontmatter
-            except Exception:
-                txt = h["snippet"]
+            f = _resolve_note(root, h["rel"])
+            if f is None:
+                return h["snippet"]  # last resort; _resolve_note should always hit
+            txt = f.read_text(errors="replace").split("---", 2)[-1].strip()  # drop frontmatter
             return txt[:8000]  # sessions run up to 20 turns; a tight cap drops the answer turn
         context = "\n\n".join(
             f"[{h['title']} · {_note_date(h['rel'], root)}]\n{_body(h)}" for h in hits)
