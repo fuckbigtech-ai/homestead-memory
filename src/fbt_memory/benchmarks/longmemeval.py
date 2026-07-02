@@ -169,8 +169,12 @@ def judge_correct(question: str, gold: str, pred: str) -> bool:
         return scores_correct(pred, gold)
     if not pred.strip():
         return False
-    prompt = ("You are grading a memory system. Is the PREDICTED answer correct given "
-              "the GOLD answer? Ignore wording/format differences; judge the facts. "
+    prompt = ("You are grading a memory system's answer.\n"
+              "- If GOLD states a fact, the PREDICTION is correct when it conveys the same "
+              "fact (ignore wording/format).\n"
+              "- If GOLD is a PREFERENCE/RUBRIC (e.g. 'the user would prefer suggestions that "
+              "take X into account'), the PREDICTION is correct when it plausibly satisfies "
+              "that preference/rubric.\n"
               "Reply with exactly YES or NO.\n\n"
               f"QUESTION: {question}\nGOLD: {gold}\nPREDICTED: {pred}\nCorrect?")
     try:
@@ -231,7 +235,7 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
                 txt = txt.split("---", 2)[-1].strip()  # drop frontmatter
             except Exception:
                 txt = h["snippet"]
-            return txt[:1800]
+            return txt[:8000]  # sessions run up to 20 turns; a tight cap drops the answer turn
         context = "\n\n".join(
             f"[{h['title']} · {_note_date(h['rel'], root)}]\n{_body(h)}" for h in hits)
         prompt = (f"Answer the question in a few words using ONLY the context. "
