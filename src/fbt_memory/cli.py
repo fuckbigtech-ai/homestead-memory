@@ -128,6 +128,12 @@ def cmd_verify(args) -> int:
     return 0 if rep["ok"] else 1
 
 
+def cmd_serve(args) -> int:
+    from .api import server
+    server.serve(args.path, host=args.host, port=args.port)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="fbt",
@@ -168,6 +174,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="plant a contradiction and watch the gate catch it")
     pv.add_argument("--quiet", action="store_true", help="print only the score line")
     pv.set_defaults(func=cmd_verify)
+
+    ps = sub.add_parser("serve", help="run the local HTTP API (point any agent at it)")
+    ps.add_argument("path", nargs="?", default=None,
+                    help="vault directory (default: $FBT_VAULT, else cwd)")
+    ps.add_argument("--host", default="127.0.0.1")
+    ps.add_argument("--port", type=int, default=8848)
+    ps.set_defaults(func=cmd_serve)
 
     return p
 
