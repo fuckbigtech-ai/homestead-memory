@@ -43,6 +43,7 @@ _OLLAMA_API = "http://localhost:11434/api/generate"
 _READER = None   # ("ollama", model) | ("cmd", shellcmd) | ("cc",)  — set in main()
 _JUDGE = None    # ("ollama", model) | None (None -> normalized-inclusion scoring)
 _CONTEXT = "full"  # "full" (whole session) | "span" (precise relevant turns, low-token)
+_DETERMINISTIC = False  # Tier-2: enumerate-then-count in code for "how many" questions
 
 
 def _ollama_generate(model: str, prompt: str, temperature: float = 0.0, timeout: int = 180) -> str:
@@ -213,6 +214,32 @@ def _norm(s) -> str:
     return _norm_re.sub(" ", str(s if s is not None else "").lower()).strip()
 
 
+_COUNT_Q_RE = re.compile(r"\bhow many\b|\btotal number\b", re.I)
+
+
+def _is_count_q(q: str) -> bool:
+    return bool(_COUNT_Q_RE.search(q))
+
+
+def deterministic_count(q: str, context: str) -> str | None:
+    """Tier-2 scaffold: the LLM is reliable at IDENTIFYING items, unreliable at
+    COUNTING them ('4 vs 5'). So separate the two — have it enumerate the qualifying
+    items one per line, then COUNT the lines in code. Returns the count as a string,
+    'not enough information' if none, or None to fall back to the normal reader."""
+    prompt = (
+        "From the CONTEXT, list EVERY distinct item the question asks about, ONE per line "
+        "starting with '- '. Use ONLY the context; do not invent or infer beyond it. "
+        "If the context contains none, write exactly 'NONE'.\n\n"
+        f"CONTEXT:\n{context}\n\nQUESTION: {q}\nLIST:")
+    raw = read(prompt)
+    if not raw:
+        return None
+    items = [ln for ln in raw.splitlines() if ln.strip().startswith("-") and len(ln.strip()) > 1]
+    if not items:
+        return "not enough information" if "NONE" in raw.upper() else None
+    return str(len(items))
+
+
 def _est_tokens(text: str) -> int:
     """Cheap, consistent token estimate (~4 chars/token). We report tokens-per-query
     so 'best AND cheapest' is a measured claim, not a slogan."""
@@ -342,10 +369,14 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
                      " End with the final answer on a line starting 'ANSWER:'.")
         prompt = (f"{instr}\nCURRENT DATE: {qdate}\n\n"
                   f"CONTEXT:\n{context}\n\nQUESTION: {q}")
-        raw = read(prompt)
-        # pull the final answer if the model showed its work
-        m = re.search(r"ANSWER:\s*(.+)", raw, re.I | re.S)
-        pred = (m.group(1).strip() if m else raw).strip()[:300]
+        pred = None
+        if _DETERMINISTIC and _is_count_q(q):
+            # Tier 2: enumerate-then-count in code for "how many" questions.
+            pred = deterministic_count(q, context)
+        if pred is None:
+            raw = read(prompt)
+            m = re.search(r"ANSWER:\s*(.+)", raw, re.I | re.S)  # final answer if it showed work
+            pred = (m.group(1).strip() if m else raw).strip()[:300]
         # cleanup the transient qmd collection
         try:
             subprocess.run([shutil.which("qmd") or "qmd", "collection", "remove",
@@ -415,10 +446,13 @@ def main(argv=None) -> int:
                     help="write partial results JSON after every question (crash-safe)")
     ap.add_argument("--context", choices=["full", "span"], default="full",
                     help="full session (accurate, token-heavy) vs precise span (cheap, low-noise)")
+    ap.add_argument("--deterministic", action="store_true",
+                    help="Tier 2: enumerate-then-count in code for 'how many' questions")
     args = ap.parse_args(argv)
 
-    global _READER, _JUDGE, _CONTEXT
+    global _READER, _JUDGE, _CONTEXT, _DETERMINISTIC
     _CONTEXT = args.context
+    _DETERMINISTIC = args.deterministic
     if args.reader:
         _READER = (("ollama", args.reader[7:]) if args.reader.startswith("ollama:")
                    else ("cc",) if args.reader == "cc" else ("cmd", args.reader))
