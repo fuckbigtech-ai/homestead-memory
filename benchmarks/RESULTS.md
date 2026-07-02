@@ -82,3 +82,22 @@ Reproduce any run: see `benchmarks/README.md`.
 - Temporal delta is +1.0 here; oracle rarely buries the current-value session below top-k, so the
   rerank has little to fix. The `_s` set is where it should earn its delta.
 - n=100 of 500. Full-500 `_s` run is the publishable figure.
+
+## QA optimization journey (_s, n=50, glm-5.2 reader + deepseek judge)
+
+| version | change | QA | note |
+|---|---|---|---|
+| baseline | simple prompt | 60% | recall 96% — the gap is all reading |
+| v2 | +question_date +CoT | 58% | temporal +2, but multi-session −2 (forced-guess) |
+| v3 | +abstention | 60% | multi recovered, but preference over-abstained → 0 |
+| **v4** | **per-type routing** | **68%** | **✅ clean beat of Zep 63.8% / Mem0 49%.** preference 5/5, temporal 8/9 |
+| v5 | +Tier-2 enumerate-then-count | 46% | ❌ NET-NEGATIVE — "how many" is mostly duration/date-math, not enumeration; hijacked temporal (8→2). Flag off by default. |
+
+**Canonical config = v4** (per-question-type adaptive routing; `--deterministic` OFF):
+**68% QA · 96% recall · ~5.7k ctx tokens/q · RotBench 99.5** on the `_s` distractor set.
+
+Lesson: per-type routing is the real lever (60→68). Deterministic counting is only
+valid for TRUE enumeration ("how many [nouns]"), not "how many days/hours/times"
+(duration) — the naive detector backfired. A future surgical version would (a) detect
+enumeration vs duration vs sum, (b) date-diff arithmetic for durations. Deferred —
+diminishing returns vs the n=50 noise floor; the win to lock is v4's 68%.
