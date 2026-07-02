@@ -59,15 +59,32 @@ def cmd_init(args) -> int:
 
 
 def cmd_ingest(args) -> int:
-    print("fbt ingest: qmd-backed indexing lands in the next build step (core/index.py).",
-          file=sys.stderr)
-    return 2
+    from .core import index
+    rep = index.ingest(args.path)
+    if rep["engine"] == "none":
+        print(rep["note"], file=sys.stderr)
+        return 0
+    tail = " ".join(rep.get("embed_tail") or [])
+    print(f"indexed vault into qmd collection '{rep['collection']}'  {tail}".rstrip())
+    print("try:  fbt ask \"<your question>\"")
+    return 0 if rep["ok"] else 1
 
 
 def cmd_ask(args) -> int:
-    print("fbt ask: retrieval + reader lands in the next build step (core/index.py).",
-          file=sys.stderr)
-    return 2
+    from .core import index
+    res = index.ask(args.question, args.path, k=args.k)
+    if not res["hits"]:
+        print("no matches found.", file=sys.stderr)
+        return 1
+    if res["answer"]:
+        print(res["answer"])
+        print(f"\n— sources ({res['engine']}):")
+    else:
+        print(f"top passages ({res['engine']}; set FBT_READER to synthesize an answer):\n")
+    for h in res["hits"]:
+        sc = f"{h['score']:.2f}" if isinstance(h["score"], (int, float)) else str(h["score"])
+        print(f"  • [{sc}] {h['title']}  ({h['rel']})")
+    return 0
 
 
 def cmd_verify(args) -> int:
@@ -99,6 +116,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     pa = sub.add_parser("ask", help="retrieve + answer")
     pa.add_argument("question")
+    pa.add_argument("path", nargs="?", default=None,
+                    help="vault directory (default: $FBT_VAULT, else cwd)")
+    pa.add_argument("-k", type=int, default=5, help="number of passages to retrieve")
     pa.set_defaults(func=cmd_ask)
 
     pv = sub.add_parser("verify", help="score memory integrity /100 (nonzero exit on rot)")
