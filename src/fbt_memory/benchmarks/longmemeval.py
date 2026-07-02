@@ -177,8 +177,17 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
         rot = verify.verify_vault(root)  # RotBench on the constructed vault
         ing = index.ingest(root)
         hits = index.search(q, root, k=k * 2 if mode == "b" else k)
-        if mode == "b":  # temporal rerank: most-recent relevant sessions first
-            hits.sort(key=lambda h: _note_date(h["rel"], root), reverse=True)
+        if mode == "b" and hits:
+            # temporal rerank: keep qmd RELEVANCE dominant, add a light recency BOOST.
+            # (A naive newest-first sort destroys relevance and wrecks "which came
+            # first"/ordering questions — it only helps knowledge-update.)
+            ranked = sorted({_note_date(h["rel"], root) for h in hits if _note_date(h["rel"], root)})
+            rank_of = {d: i for i, d in enumerate(ranked)}
+            span = max(1, len(ranked) - 1)
+            for h in hits:
+                rec = rank_of.get(_note_date(h["rel"], root), 0) / span if ranked else 0.0
+                h["_b"] = (h["score"] or 0.0) + 0.15 * rec
+            hits.sort(key=lambda h: h["_b"], reverse=True)
         hits = hits[:k]
         context = "\n\n".join(
             f"[{h['title']} · {_note_date(h['rel'], root)}] {h['snippet'][:350]}"
