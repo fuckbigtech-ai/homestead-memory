@@ -221,9 +221,19 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
                 h["_b"] = (h["score"] or 0.0) + 0.15 * rec
             hits.sort(key=lambda h: h["_b"], reverse=True)
         hits = hits[:k]
+        # Feed the reader the FULL retrieved note body (the memory the system stored),
+        # not qmd's ~350-char snippet — on LongMemEval the answer is often a single
+        # sentence buried in a long session, which a truncated snippet drops. Cap per
+        # note so k notes fit a reasonable reader window.
+        def _body(h):
+            try:
+                txt = (root / h["rel"]).read_text(errors="replace")
+                txt = txt.split("---", 2)[-1].strip()  # drop frontmatter
+            except Exception:
+                txt = h["snippet"]
+            return txt[:1800]
         context = "\n\n".join(
-            f"[{h['title']} · {_note_date(h['rel'], root)}] {h['snippet'][:350]}"
-            for h in hits)
+            f"[{h['title']} · {_note_date(h['rel'], root)}]\n{_body(h)}" for h in hits)
         prompt = (f"Answer the question in a few words using ONLY the context. "
                   f"If facts changed over time, use the MOST RECENT.\n\n"
                   f"CONTEXT:\n{context}\n\nQUESTION: {q}\nANSWER:")
