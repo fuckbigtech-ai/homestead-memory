@@ -177,6 +177,19 @@ def _note_date(path: str, root: Path) -> str:
 
 
 # ------------------------------------------------------------------------- reader
+_CODEX = "/opt/homebrew/bin/codex"
+_CODEX_NOISE = re.compile(r"^(hook:|codex$|tokens used$|[\d,]+$)")
+
+
+def _parse_codex(out: str) -> str:
+    """Strip the codex-exec harness noise (hook lines, 'tokens used', token counts),
+    leaving the model's answer. The adaptive prompt's 'ANSWER:' line is extracted
+    downstream in run_question."""
+    lines = [s for ln in out.splitlines() if (s := ln.strip())
+             and not _CODEX_NOISE.match(s)]
+    return "\n".join(lines).strip()
+
+
 def read(prompt: str, timeout: int = 150) -> str:
     """Call the configured reader. One slow/failed call returns "" (a wrong-but-
     scoreable prediction) instead of crashing the batch — feedback_batch_llm_resilience."""
@@ -184,6 +197,13 @@ def read(prompt: str, timeout: int = 150) -> str:
     try:
         if kind[0] == "ollama":
             return _ollama_generate(kind[1], prompt, 0.0, timeout)
+        if kind[0] == "codex":
+            # raw binary (not the ~/bin wrapper — that fires qmd/vault-writeback overhead)
+            r = subprocess.run([_CODEX, "exec", "--sandbox", "read-only",
+                                "--skip-git-repo-check", prompt],
+                               capture_output=True, text=True,
+                               timeout=max(timeout, 180), stdin=subprocess.DEVNULL)
+            return _parse_codex(r.stdout)
         if kind[0] == "cmd":
             r = subprocess.run(kind[1].split(), input=prompt, capture_output=True,
                                text=True, timeout=timeout)
@@ -474,6 +494,7 @@ def main(argv=None) -> int:
     _CHUNK = args.chunk
     if args.reader:
         _READER = (("ollama", args.reader[7:]) if args.reader.startswith("ollama:")
+                   else ("codex",) if args.reader == "codex"
                    else ("cc",) if args.reader == "cc" else ("cmd", args.reader))
     elif os.environ.get("FBT_READER"):
         _READER = ("cmd", os.environ["FBT_READER"])
