@@ -46,6 +46,7 @@ _CONTEXT = "full"  # "full" (whole session) | "span" (precise relevant turns, lo
 _DETERMINISTIC = False  # Tier-2: enumerate-then-count in code for "how many" questions
 _CHUNK = "session"  # "session" (one note per session) | "turns" (finer turn-windows)
 _STRUCTURE = False  # digest retrieved raw evidence → clean facts before the reader answers
+_V4PP = False  # v4++: complete-evidence retrieval for aggregation/recency types (Mem0-style)
 
 
 def _ollama_generate(model: str, prompt: str, temperature: float = 0.0, timeout: int = 180) -> str:
@@ -347,6 +348,13 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
     # finer chunks = more, smaller notes per session, so retrieve more of them
     if _CHUNK == "turns":
         k = 12
+    qtype = item.get("question_type", "")
+    # Complete-evidence retrieval (Mem0's entity-completeness, additive): counting +
+    # recency need the entity's FULL footprint, not just top-k semantic. Our lenient
+    # recall ("an evidence session in top-k") hides that multi-session had only 1 of N
+    # mentions to count from. Retrieve WIDER for those types; keep raw context + v4 read.
+    if _V4PP and qtype in ("multi-session", "knowledge-update", "temporal-reasoning"):
+        k = 14
     sessions, _ = _sessions_and_dates(item)
     q = item["question"]
     gold = item.get("answer", "")
@@ -357,6 +365,9 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
         rot = verify.verify_vault(root)  # RotBench on the constructed vault
         ing = index.ingest(root)
         hits = index.search(q, root, k=k * 2 if mode == "b" else k)
+        # knowledge-update: order the wider evidence chronologically so 'latest wins' is legible
+        if _V4PP and qtype == "knowledge-update" and hits:
+            hits.sort(key=lambda h: _note_date(h["rel"], root))
         if mode == "b" and hits:
             # temporal rerank: keep qmd RELEVANCE dominant, add a light recency BOOST.
             # (A naive newest-first sort destroys relevance and wrecks "which came
@@ -509,13 +520,16 @@ def main(argv=None) -> int:
                     help="one note per session vs finer turn-windows (MemPalace recall trick)")
     ap.add_argument("--structure", action="store_true",
                     help="digest retrieved evidence → clean facts before the reader (beat-both step)")
+    ap.add_argument("--v4pp", action="store_true",
+                    help="v4++: complete-evidence retrieval for aggregation/recency types (Mem0-style)")
     args = ap.parse_args(argv)
 
-    global _READER, _JUDGE, _CONTEXT, _DETERMINISTIC, _CHUNK, _STRUCTURE
+    global _READER, _JUDGE, _CONTEXT, _DETERMINISTIC, _CHUNK, _STRUCTURE, _V4PP
     _CONTEXT = args.context
     _DETERMINISTIC = args.deterministic
     _CHUNK = args.chunk
     _STRUCTURE = args.structure
+    _V4PP = args.v4pp
     if args.reader:
         _READER = (("ollama", args.reader[7:]) if args.reader.startswith("ollama:")
                    else ("codex",) if args.reader == "codex"
