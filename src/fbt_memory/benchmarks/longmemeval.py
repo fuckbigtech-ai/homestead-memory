@@ -45,6 +45,7 @@ _JUDGE = None    # ("ollama", model) | None (None -> normalized-inclusion scorin
 _CONTEXT = "full"  # "full" (whole session) | "span" (precise relevant turns, low-token)
 _DETERMINISTIC = False  # Tier-2: enumerate-then-count in code for "how many" questions
 _CHUNK = "session"  # "session" (one note per session) | "turns" (finer turn-windows)
+_STRUCTURE = False  # digest retrieved raw evidence → clean facts before the reader answers
 
 
 def _ollama_generate(model: str, prompt: str, temperature: float = 0.0, timeout: int = 180) -> str:
@@ -219,6 +220,24 @@ def read(prompt: str, timeout: int = 150) -> str:
         return ""
 
 
+def structure_evidence(question: str, context: str) -> str:
+    """The 'beat both' step: digest the RETRIEVED raw sessions into clean dated facts
+    before the reader answers. Keeps our verbatim storage (recall + cost + verification)
+    but gives the reader pre-structured facts like the extraction camp (Mem0/Zep) —
+    without their expensive lossy WHOLE-corpus extraction (we structure only the ~k
+    retrieved sessions, on the fly). Raw context is hard to reason over; clean facts
+    aren't. This is what closes the recall→QA gap."""
+    prompt = (
+        "Extract ONLY the facts from the CONTEXT relevant to answering the QUESTION, as "
+        "clean bullet points. Keep exact numbers, names, and DATES. List EVERY relevant "
+        "occurrence (for counting/aggregation) and note when values changed over time (for "
+        "recency). Do NOT answer the question yet — just extract the relevant facts. If the "
+        "context has nothing relevant, write 'NONE'.\n\n"
+        f"QUESTION: {question}\n\nCONTEXT:\n{context}\n\nRELEVANT FACTS:")
+    facts = read(prompt)
+    return facts if facts.strip() else context   # fall back to raw if structuring failed
+
+
 def judge_correct(question: str, gold: str, pred: str) -> bool:
     """LLM-judge if configured (more accurate than string inclusion), else fall back
     to normalized-inclusion. Judge runs at temp 0 for reproducibility."""
@@ -371,6 +390,8 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
             return _span(txt, q, 1000) if _CONTEXT == "span" else txt[:8000]
         context = "\n\n".join(
             f"[{h['title']} · {_note_date(h['rel'], root)}]\n{_body(h)}" for h in hits)
+        if _STRUCTURE:
+            context = structure_evidence(q, context)   # digest raw evidence → clean facts
         ctx_tokens = _est_tokens(context)
         # Question-type-adaptive prompting — the failures are arithmetic/date-math, not
         # retrieval. Give the reader the CURRENT DATE (LongMemEval question_date; the
@@ -486,12 +507,15 @@ def main(argv=None) -> int:
                     help="Tier 2: enumerate-then-count in code for 'how many' questions")
     ap.add_argument("--chunk", choices=["session", "turns"], default="session",
                     help="one note per session vs finer turn-windows (MemPalace recall trick)")
+    ap.add_argument("--structure", action="store_true",
+                    help="digest retrieved evidence → clean facts before the reader (beat-both step)")
     args = ap.parse_args(argv)
 
-    global _READER, _JUDGE, _CONTEXT, _DETERMINISTIC, _CHUNK
+    global _READER, _JUDGE, _CONTEXT, _DETERMINISTIC, _CHUNK, _STRUCTURE
     _CONTEXT = args.context
     _DETERMINISTIC = args.deterministic
     _CHUNK = args.chunk
+    _STRUCTURE = args.structure
     if args.reader:
         _READER = (("ollama", args.reader[7:]) if args.reader.startswith("ollama:")
                    else ("codex",) if args.reader == "codex"
