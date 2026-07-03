@@ -14,7 +14,7 @@ Two correctness-critical primitives everything else depends on:
      field is too dirty to sort on).
 
 The vault root is resolved from (in order): an explicit `vault=` argument, the
-`FBT_VAULT` environment variable, else the current working directory. There is no
+`HSM_VAULT` environment variable (legacy `FBT_VAULT` honored), else the current working directory. There is no
 hard-coded personal path — this is the de-personalized core.
 
 Ported from the author's personal `vault_mem_lib.py`; MIT.
@@ -32,9 +32,10 @@ from pathlib import Path
 EXCLUDE_DIR_PARTS = {"raw", "archive"}
 # Path prefixes (relative, posix) excluded — e.g. Obsidian template folders whose
 # `status: <% ... %>` placeholders must NOT be parsed as notes. Configurable via
-# FBT_EXCLUDE_PREFIXES (comma-separated). Generic default: just the template dir.
+# HSM_EXCLUDE_PREFIXES (comma-separated; legacy FBT_EXCLUDE_PREFIXES honored).
 EXCLUDE_PREFIXES: tuple[str, ...] = tuple(
-    p for p in os.environ.get("FBT_EXCLUDE_PREFIXES", "Meta/Templates/").split(",") if p
+    p for p in (os.environ.get("HSM_EXCLUDE_PREFIXES")
+                or os.environ.get("FBT_EXCLUDE_PREFIXES", "Meta/Templates/")).split(",") if p
 )
 # Top-level files that are conventionally indexes, not notes.
 SKIP_FILES = {"Dashboard.md", "MEMORY.md"}
@@ -52,8 +53,8 @@ _COMMIT_LINE_RE = re.compile(r"^C(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\
 
 
 def default_vault() -> Path:
-    """Vault root: $FBT_VAULT if set, else the current working directory."""
-    env = os.environ.get("FBT_VAULT")
+    """Vault root: $HSM_VAULT if set (legacy $FBT_VAULT honored), else the cwd."""
+    env = os.environ.get("HSM_VAULT") or os.environ.get("FBT_VAULT")
     return Path(env).expanduser() if env else Path.cwd()
 
 
@@ -195,10 +196,13 @@ def build_mtime_map(vault: Path | str | None = None) -> dict:
 
 
 def load_ignore(vault: Path) -> list[str]:
-    """Read `<vault>/.fbtignore` (gitignore-ish: prefix-dir patterns ending in '/',
-    or fnmatch globs). Lets users quarantine generated/report notes so a verifier
-    never flags its own ecosystem's output (the generated-artifact-quarantine rule)."""
-    f = vault / ".fbtignore"
+    """Read `<vault>/.hsmignore` (gitignore-ish: prefix-dir patterns ending in '/',
+    or fnmatch globs; legacy `.fbtignore` honored). Lets users quarantine generated/
+    report notes so a verifier never flags its own ecosystem's output (the
+    generated-artifact-quarantine rule)."""
+    f = vault / ".hsmignore"
+    if not f.exists():
+        f = vault / ".fbtignore"   # legacy name
     if not f.exists():
         return []
     return [ln.strip() for ln in f.read_text(errors="replace").splitlines()
@@ -221,7 +225,7 @@ def iter_notes(vault: Path | str | None = None):
     Uses os.walk with in-place directory pruning so we NEVER descend into dotdirs
     (.git, .smart-env, .venv) or raw/archive — a plain rglob walks those huge trees
     for nothing and turns a seconds-long scan into minutes on a real repo. Honors
-    a `.fbtignore` in the vault root for user-declared exclusions."""
+    a `.hsmignore` (or legacy `.fbtignore`) in the vault root for user-declared exclusions."""
     vault = _resolve(vault)
     patterns = load_ignore(vault)
     dir_pats = [p[:-1] for p in patterns if p.endswith("/")]

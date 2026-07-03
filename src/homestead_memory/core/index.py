@@ -4,8 +4,8 @@ core.index — retrieval. A thin wrapper over `qmd` (Tobi Lütke's MIT hybrid
 BM25 + vector search), with a dependency-free direct-scan fallback so memory
 survives the index being down.
 
-qmd is an OPTIONAL external dependency (a CLI), never vendored. fbt-memory keeps
-its data in an isolated qmd index (`--index fbt-memory`) so it never touches the
+qmd is an OPTIONAL external dependency (a CLI), never vendored. homestead-memory keeps
+its data in an isolated qmd index (`--index homestead-memory`) so it never touches the
 user's default qmd setup. If qmd isn't installed, `search` degrades to a keyword
 scan over the markdown — retrieval still works, just without hybrid ranking.
 """
@@ -20,7 +20,7 @@ from pathlib import Path
 
 from . import vault as vaultlib
 
-QMD_INDEX = "fbt-memory"        # isolated index — never the user's default
+QMD_INDEX = "homestead-memory"        # isolated index — never the user's default
 _QMD = shutil.which("qmd")
 _WORD = re.compile(r"[a-z0-9]{3,}")
 
@@ -117,12 +117,12 @@ def _direct_scan(query: str, vault: Path, k: int) -> list[dict]:
 
 def ask(query: str, vault: Path | str | None = None, k: int = 5) -> dict:
     """Retrieve, then synthesize an answer with a reader if one is configured
-    (env FBT_READER, a command template with {prompt}); otherwise return the
+    (env HSM_READER, a command template with {prompt}); otherwise return the
     retrieved passages as the answer context."""
     import os
     hits = search(query, vault, k)
     context = "\n\n".join(f"[{h['title']}] {h['snippet']}" for h in hits)
-    reader = os.environ.get("FBT_READER")
+    reader = os.environ.get("HSM_READER") or os.environ.get("FBT_READER")
     answer = None
     if reader and hits:
         prompt = (f"Answer the question using ONLY the context. Cite the note titles.\n\n"

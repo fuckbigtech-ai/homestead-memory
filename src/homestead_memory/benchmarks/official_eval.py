@@ -14,7 +14,7 @@ repo script) for leaderboard-exact numbers. We also emit the official hypothesis
 ({question_id, hypothesis}) so anyone can run the literal official script.
 
 Usage:
-    python -m fbt_memory.benchmarks.official_eval <checkpoint.json> [--mode a] \
+    python -m homestead_memory.benchmarks.official_eval <checkpoint.json> [--mode a] \
         [--judge ollama:deepseek-v4-pro:cloud] [--export hyp.jsonl]
 """
 from __future__ import annotations

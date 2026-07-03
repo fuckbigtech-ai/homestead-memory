@@ -1,26 +1,26 @@
-# fbt-memory
+# homestead-memory
 
 **Stop renting your mind.**
 
-Verifiable, local-first AI memory. Your notes stay plain markdown you can read, `git diff`, and own — and `fbt-memory` **proves the memory never rotted.**
+Verifiable, local-first AI memory. Your notes stay plain markdown you can read, `git diff`, and own — and `homestead-memory` **proves the memory never rotted.**
 
 Every other memory layer asks you to *hope* it remembers. This one lets you *watch it prove it didn't rot.*
 
 ```bash
-pip install fbt-memory        # (soon) cross-platform: macOS / Linux / Windows
+pip install homestead-memory        # (soon) cross-platform: macOS / Linux / Windows
 
-fbt init      ./my-vault      # scaffold or adopt a markdown folder
-fbt ingest    ./my-vault      # index it (hybrid BM25 + vector via qmd)
-fbt ask       "what did I decide about X?"
-fbt verify    ./my-vault      # <-- the point: score memory integrity /100, nonzero exit on rot
-fbt verify --demo             # plant a contradiction and watch the gate catch it
+hsm init      ./my-vault      # scaffold or adopt a markdown folder
+hsm ingest    ./my-vault      # index it (hybrid BM25 + vector via qmd)
+hsm ask       "what did I decide about X?"
+hsm verify    ./my-vault      # <-- the point: score memory integrity /100, nonzero exit on rot
+hsm verify --demo             # plant a contradiction and watch the gate catch it
 ```
 
 ## Why this exists
 
 Local, on-device AI memory is already commoditized — everyone stores your data on your machine now. Nobody **verifies** it. Memory silently rots: a note's body drifts from its own changelog, a "current" fact gets shadowed by a stale copy, an embedding goes bad, a source disappears. You never find out until your agent confidently tells you something that was true six weeks ago.
 
-`fbt verify` is a weighted memory-integrity gate. It exits non-zero when your memory can't prove it surfaces the *current* truth over the stale one. That number — **RotBench** — is something no other memory tool publishes.
+`hsm verify` is a weighted memory-integrity gate. It exits non-zero when your memory can't prove it surfaces the *current* truth over the stale one. That number — **RotBench** — is something no other memory tool publishes.
 
 ## Design
 

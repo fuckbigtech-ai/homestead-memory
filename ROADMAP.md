@@ -4,12 +4,12 @@ Building in public. **Stop renting your mind.**
 
 ## v0.1 — the core (in progress, most shipped)
 
-- [x] Package + `fbt` CLI (cross-platform Python)
+- [x] Package + `hsm` CLI (cross-platform Python)
 - [x] `core/vault.py` — markdown vault model (frontmatter, wikilinks, recency), de-personalized
-- [x] **`fbt verify` + `--demo`** — memory-integrity gate; catches rot live, nonzero exit
-- [x] `core/index.py` — qmd hybrid retrieval (+ direct-scan fallback) → `fbt ingest` / `ask`
-- [x] `core/temporal.py` — bi-temporal from changelogs → `fbt history` / `--as-of`
-- [x] `.fbtignore` exclusion parity (quarantine generated/report notes)
+- [x] **`hsm verify` + `--demo`** — memory-integrity gate; catches rot live, nonzero exit
+- [x] `core/index.py` — qmd hybrid retrieval (+ direct-scan fallback) → `hsm ingest` / `ask`
+- [x] `core/temporal.py` — bi-temporal from changelogs → `hsm history` / `--as-of`
+- [x] `.hsmignore` exclusion parity (quarantine generated/report notes)
 - [x] LongMemEval harness (real `--data` + synthetic validation) + RotBench
 - [ ] Full LongMemEval-S (500Q) published number — A vs B + delta *(the launch proof)*
 - [ ] `verify` full-fidelity: qmd-freshness + forced-fallback + fixtures checks

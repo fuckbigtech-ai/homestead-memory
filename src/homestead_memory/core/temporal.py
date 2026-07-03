@@ -13,7 +13,8 @@ systems (Zep/Graphiti) need a whole graph DB for. Here it's ~a table, because th
 markdown is already the bi-temporal record. Markdown-primary, graph-derived.
 
 The sidecar is DERIVED and disposable — rebuild it any time from the notes.
-Stored at <vault>/.fbt/temporal.sqlite (a dotdir, so it's never scanned as notes).
+Stored at <vault>/.hsm/temporal.sqlite — a dotdir, never scanned as notes
+(the legacy .fbt/ location is still read if present).
 """
 from __future__ import annotations
 
@@ -51,7 +52,16 @@ def parse_changelog(text: str) -> list[dict]:
 
 
 def db_path(vault: Path) -> Path:
-    return vault / ".fbt" / "temporal.sqlite"
+    return vault / ".hsm" / "temporal.sqlite"
+
+
+def _existing_db_path(vault: Path) -> Path:
+    """Prefer the current sidecar; fall back to the legacy `.fbt/` location."""
+    new = db_path(vault)
+    if new.exists():
+        return new
+    legacy = vault / ".fbt" / "temporal.sqlite"
+    return legacy if legacy.exists() else new
 
 
 def build(vault: Path | str | None = None) -> dict:
@@ -84,7 +94,7 @@ def build(vault: Path | str | None = None) -> dict:
 
 
 def _connect(vault: Path) -> sqlite3.Connection | None:
-    dbp = db_path(vault)
+    dbp = _existing_db_path(vault)
     if not dbp.exists():
         return None
     con = sqlite3.connect(dbp)

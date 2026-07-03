@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fbt-memory"
+name = "homestead-memory"
 version = "0.0.1"
 description = "Verifiable, local-first AI memory. Own your mind — and prove it never rotted."
 readme = "README.md"
@@ -24,7 +24,8 @@ dependencies = []
 api = ["fastapi>=0.110", "uvicorn>=0.27"]
 
 [project.scripts]
-fbt = "fbt_memory.cli:main"
+hsm = "homestead_memory.cli:main"
+fbt = "homestead_memory.cli:main"  # legacy alias, removed before 1.0
 
 [tool.setuptools.packages.find]
 where = ["src"]

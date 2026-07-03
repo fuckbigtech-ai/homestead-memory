@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-LongMemEval harness for fbt-memory.
+LongMemEval harness for homestead-memory.
 
 For each question, the haystack of chat sessions IS written into a fresh markdown
-vault (the haystack is the product) — then fbt-memory retrieves and a reader
+vault (the haystack is the product) — then homestead-memory retrieves and a reader
 answers. Two runs:
 
   A (baseline)  = qmd hybrid retrieval, top-k as returned.
@@ -15,10 +15,10 @@ Publish A, B, and the A→B delta. Also emit a RotBench line (verify score of th
 constructed vault) — nobody else reports memory integrity alongside recall.
 
 Usage:
-    python -m fbt_memory.benchmarks.longmemeval --synthetic
-    python -m fbt_memory.benchmarks.longmemeval --data longmemeval_s.json -n 20 --mode both
+    python -m homestead_memory.benchmarks.longmemeval --synthetic
+    python -m homestead_memory.benchmarks.longmemeval --data longmemeval_s.json -n 20 --mode both
 
-Reader: $FBT_READER (prompt on stdin) if set, else ~/.local/bin/cc (GLM, flat-rate)
+Reader: $HSM_READER (prompt on stdin) if set, else ~/.local/bin/cc (GLM, flat-rate)
 if present. Scoring: normalized answer-inclusion (fast first pass; an LLM judge is
 the rigorous upgrade — see --judge, TODO).
 """
@@ -495,7 +495,7 @@ def run(data: list[dict], modes: list[str], n: int | None,
 
 
 def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description="LongMemEval harness for fbt-memory")
+    ap = argparse.ArgumentParser(description="LongMemEval harness for homestead-memory")
     src = ap.add_mutually_exclusive_group(required=True)
     src.add_argument("--synthetic", action="store_true",
                      help="run the built-in synthetic LongMemEval-format set (pipeline validation)")
@@ -507,7 +507,7 @@ def main(argv=None) -> int:
                          "a raw -n grabs one question type — shuffle for a representative mix)")
     ap.add_argument("--seed", type=int, default=42, help="deterministic shuffle seed")
     ap.add_argument("--reader", default=None,
-                    help="ollama:<model> (temp-0, reliable) | cc | else $FBT_READER")
+                    help="ollama:<model> (temp-0, reliable) | cc | else $HSM_READER")
     ap.add_argument("--judge", default=None,
                     help="ollama:<model> to LLM-judge correctness (else normalized-inclusion)")
     ap.add_argument("--checkpoint", default=None,
@@ -534,8 +534,8 @@ def main(argv=None) -> int:
         _READER = (("ollama", args.reader[7:]) if args.reader.startswith("ollama:")
                    else ("codex",) if args.reader == "codex"
                    else ("cc",) if args.reader == "cc" else ("cmd", args.reader))
-    elif os.environ.get("FBT_READER"):
-        _READER = ("cmd", os.environ["FBT_READER"])
+    elif (os.environ.get("HSM_READER") or os.environ.get("FBT_READER")):
+        _READER = ("cmd", (os.environ.get("HSM_READER") or os.environ["FBT_READER"]))
     if args.judge:
         _JUDGE = ("ollama", args.judge[7:] if args.judge.startswith("ollama:") else args.judge)
 
