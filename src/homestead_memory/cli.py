@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-fbt — the fbt-memory CLI.
+fbt — the homestead-memory CLI.
 
-    fbt init   [path]       scaffold / adopt a markdown vault
-    fbt ingest [path]       index the vault (hybrid BM25 + vector via qmd)
-    fbt ask    "question"   retrieve + answer
-    fbt verify [path]       score memory integrity /100 — nonzero exit on rot
-    fbt verify --demo       plant a contradiction and watch the gate catch it
+    hsm init   [path]       scaffold / adopt a markdown vault
+    hsm ingest [path]       index the vault (hybrid BM25 + vector via qmd)
+    hsm ask    "question"   retrieve + answer
+    hsm verify [path]       score memory integrity /100 — nonzero exit on rot
+    hsm verify --demo       plant a contradiction and watch the gate catch it
 
 Stop renting your mind. Own it — and prove it never rotted.
 """
@@ -29,16 +29,16 @@ updated: 2026-07-01
 # Welcome to your vault
 
 This is a plain markdown note. You can read it, edit it in any editor, and
-`git diff` it. `fbt-memory` never takes it anywhere you don't tell it to.
+`git diff` it. `homestead-memory` never takes it anywhere you don't tell it to.
 
 Try:
 
-    fbt ingest .
-    fbt ask "what is this vault?"
-    fbt verify .
+    hsm ingest .
+    hsm ask "what is this vault?"
+    hsm verify .
 
 ## Changelog
-- 2026-07-01: created by `fbt init`.
+- 2026-07-01: created by `hsm init`.
 """
 
 
@@ -51,21 +51,21 @@ def cmd_init(args) -> int:
     else:
         (root / "welcome.md").write_text(STARTER_NOTE, encoding="utf-8")
         print(f"scaffolded a new vault at {root}  (created welcome.md)")
-    ignore = root / ".fbtignore"
+    ignore = root / ".hsmignore"
     if not ignore.exists():
         ignore.write_text(
-            "# .fbtignore — paths fbt-memory should NOT treat as memory notes.\n"
+            "# .hsmignore — paths homestead-memory should NOT treat as memory notes.\n"
             "# A trailing / excludes a whole directory; otherwise it's a glob.\n"
-            "# Keep generated/report output here so `fbt verify` never flags it.\n"
+            "# Keep generated/report output here so `hsm verify` never flags it.\n"
             "# examples:\n"
             "# reports/\n"
             "# **/*.generated.md\n",
             encoding="utf-8",
         )
     print("\nnext:")
-    print(f"  export FBT_VAULT={root}")
-    print("  fbt ingest .   # index it")
-    print("  fbt verify .   # prove it hasn't rotted")
+    print(f"  export HSM_VAULT={root}")
+    print("  hsm ingest .   # index it")
+    print("  hsm verify .   # prove it hasn't rotted")
     return 0
 
 
@@ -80,7 +80,7 @@ def cmd_ingest(args) -> int:
     t = temporal.build(args.path)
     print(f"temporal: {t['entries']} dated changes across {t['notes_with_history']} notes "
           f"→ {t['db']}")
-    print("try:  fbt ask \"<question>\"   |   fbt history <note>")
+    print("try:  hsm ask \"<question>\"   |   hsm history <note>")
     return 0
 
 
@@ -90,7 +90,7 @@ def cmd_history(args) -> int:
             if args.as_of else temporal.history(args.note, vault=args.path))
     if not rows:
         print(f"no recorded history for '{args.note}' "
-              f"(run `fbt ingest` first to build the temporal sidecar).", file=sys.stderr)
+              f"(run `hsm ingest` first to build the temporal sidecar).", file=sys.stderr)
         return 1
     header = f"history of '{args.note}'" + (f" as of {args.as_of}" if args.as_of else "")
     print(header + ":\n")
@@ -112,7 +112,7 @@ def cmd_ask(args) -> int:
         print(res["answer"])
         print(f"\n— sources ({res['engine']}):")
     else:
-        print(f"top passages ({res['engine']}; set FBT_READER to synthesize an answer):\n")
+        print(f"top passages ({res['engine']}; set HSM_READER to synthesize an answer):\n")
     for h in res["hits"]:
         sc = f"{h['score']:.2f}" if isinstance(h["score"], (int, float)) else str(h["score"])
         print(f"  • [{sc}] {h['title']}  ({h['rel']})")
@@ -137,11 +137,11 @@ def cmd_serve(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="fbt",
-        description="fbt-memory — verifiable, local-first AI memory. "
+        prog="hsm",
+        description="homestead-memory — verifiable, local-first AI memory. "
                     "Own your mind — and prove it never rotted.",
     )
-    p.add_argument("--version", action="version", version=f"fbt-memory {__version__}")
+    p.add_argument("--version", action="version", version=f"homestead-memory {__version__}")
     sub = p.add_subparsers(dest="command", metavar="<command>")
 
     pi = sub.add_parser("init", help="scaffold / adopt a markdown vault")
@@ -150,27 +150,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     pg = sub.add_parser("ingest", help="index the vault (qmd hybrid retrieval)")
     pg.add_argument("path", nargs="?", default=None,
-                    help="vault directory (default: $FBT_VAULT, else cwd)")
+                    help="vault directory (default: $HSM_VAULT, else cwd)")
     pg.set_defaults(func=cmd_ingest)
 
     pa = sub.add_parser("ask", help="retrieve + answer")
     pa.add_argument("question")
     pa.add_argument("path", nargs="?", default=None,
-                    help="vault directory (default: $FBT_VAULT, else cwd)")
+                    help="vault directory (default: $HSM_VAULT, else cwd)")
     pa.add_argument("-k", type=int, default=5, help="number of passages to retrieve")
     pa.set_defaults(func=cmd_ask)
 
     ph = sub.add_parser("history", help="show a note's recorded change history (temporal)")
     ph.add_argument("note", help="note stem or relpath")
     ph.add_argument("path", nargs="?", default=None,
-                    help="vault directory (default: $FBT_VAULT, else cwd)")
+                    help="vault directory (default: $HSM_VAULT, else cwd)")
     ph.add_argument("--as-of", dest="as_of", default=None, metavar="YYYY-MM-DD",
                     help="what was recorded on/before this date")
     ph.set_defaults(func=cmd_history)
 
     pv = sub.add_parser("verify", help="score memory integrity /100 (nonzero exit on rot)")
     pv.add_argument("path", nargs="?", default=None,
-                    help="vault directory (default: $FBT_VAULT, else cwd)")
+                    help="vault directory (default: $HSM_VAULT, else cwd)")
     pv.add_argument("--demo", action="store_true",
                     help="plant a contradiction and watch the gate catch it")
     pv.add_argument("--deep", action="store_true",
@@ -180,7 +180,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     ps = sub.add_parser("serve", help="run the local HTTP API (point any agent at it)")
     ps.add_argument("path", nargs="?", default=None,
-                    help="vault directory (default: $FBT_VAULT, else cwd)")
+                    help="vault directory (default: $HSM_VAULT, else cwd)")
     ps.add_argument("--host", default="127.0.0.1")
     ps.add_argument("--port", type=int, default=8848)
     ps.add_argument("--no-auth", action="store_true",

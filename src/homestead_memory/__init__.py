@@ -1,4 +1,4 @@
-"""fbt-memory — verifiable, local-first AI memory.
+"""homestead-memory — verifiable, local-first AI memory.
 
 Stop renting your mind. Own it — and prove it never rotted.
 """

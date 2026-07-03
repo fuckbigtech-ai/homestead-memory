@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-api.server — a tiny local HTTP API for fbt-memory. Stdlib-only (http.server), so
+api.server — a tiny local HTTP API for homestead-memory. Stdlib-only (http.server), so
 it runs identically on macOS / Linux / Windows and adds zero dependencies.
 
 The builder/enterprise surface: point your agent at localhost and get retrieval,
@@ -17,7 +17,7 @@ Security (this API can read your whole memory — treat it like one):
   - **Host-header allowlist** rejects DNS-rebinding (a malicious web page can point
     a hostname at 127.0.0.1, but the browser still sends that hostname as Host).
   - **Bearer token** required on every endpoint except /health. Auto-generated and
-    printed at startup, or set FBT_API_TOKEN. Disable only with --no-auth.
+    printed at startup, or set HSM_API_TOKEN. Disable only with --no-auth.
 """
 from __future__ import annotations
 
@@ -136,12 +136,12 @@ def serve(vault, host: str = "127.0.0.1", port: int = 8848,
 
     token = None
     if require_auth:
-        token = os.environ.get("FBT_API_TOKEN") or secrets.token_urlsafe(18)
+        token = os.environ.get("HSM_API_TOKEN") or os.environ.get("FBT_API_TOKEN") or secrets.token_urlsafe(18)
     # Host header we'll accept: loopback names + the exact host:port we bound to.
     allowed = set(_LOOPBACK) | {host}
 
     httpd = ThreadingHTTPServer((host, port), _make_handler(v, token, allowed))
-    print(f"fbt-memory API on http://{host}:{port}  (vault: {v})")
+    print(f"homestead-memory API on http://{host}:{port}  (vault: {v})")
     if token:
         print(f"  auth: send  Authorization: Bearer {token}")
     else:

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-core.verify — the memory-integrity gate. The whole point of fbt-memory.
+core.verify — the memory-integrity gate. The whole point of homestead-memory.
 
-Every other memory layer asks you to *hope* it remembers. `fbt verify` scores
+Every other memory layer asks you to *hope* it remembers. `hsm verify` scores
 whether your memory can still prove it surfaces the *current* truth over stale,
 contradictory, or dangling copies — and exits non-zero when it can't.
 
@@ -19,7 +19,7 @@ markdown vault:
 
 It will grow toward the full weighted degradation-test (freshness, fallback
 resilience, contradiction-recall). But even this catches real rot today — which
-is the demo: `fbt verify --demo`.
+is the demo: `hsm verify --demo`.
 """
 from __future__ import annotations
 
@@ -71,11 +71,11 @@ def _stale_body(text: str, updated: str | None) -> str | None:
 
 
 def deep_checks(vault: Path | str | None = None) -> list[Finding]:
-    """Extra 'full' checks (fbt verify --deep):
+    """Extra 'full' checks (hsm verify --deep):
       1. fallback resilience — retrieval must survive the index being down (the
          direct-scan must still find a known term). "Your memory works even when
          the fancy index is gone" is the whole ownership pitch.
-      2. fixtures.json — user-defined golden recall (<vault>/.fbt/fixtures.json:
+      2. fixtures.json — user-defined golden recall (<vault>/.hsm/fixtures.json:
          [{"query","expect"}]) — a regression suite for "this must stay findable".
       3. qmd freshness — WARN if qmd is available but the vault was never ingested.
     """
@@ -93,13 +93,15 @@ def deep_checks(vault: Path | str | None = None) -> list[Finding]:
                                f"direct-scan found nothing for a known term {probe!r} — "
                                f"memory would not survive qmd being down"))
 
-    fx = v / ".fbt" / "fixtures.json"
+    fx = v / ".hsm" / "fixtures.json"
+    if not fx.exists():
+        fx = v / ".fbt" / "fixtures.json"   # legacy location
     if fx.exists():
         try:
             cases = json.loads(fx.read_text())
         except Exception:
             cases = []
-            out.append(Finding("warn", "fixtures", ".fbt/fixtures.json", "unparseable"))
+            out.append(Finding("warn", "fixtures", "fixtures.json", "unparseable"))
         for c in cases or []:
             query, expect = c.get("query", ""), c.get("expect", "")
             if not query or not expect:
@@ -111,7 +113,7 @@ def deep_checks(vault: Path | str | None = None) -> list[Finding]:
 
     if index.qmd_available() and notes and not index._collection_exists(index.collection_name(v)):
         out.append(Finding("warn", "not_indexed", "(retrieval)",
-                           "qmd available but vault not ingested — run `fbt ingest` for hybrid retrieval"))
+                           "qmd available but vault not ingested — run `hsm ingest` for hybrid retrieval"))
     return out
 
 
@@ -196,7 +198,7 @@ def print_report(rep: dict, *, quiet: bool = False) -> None:
 
 
 # ---------------------------------------------------------------------------
-# fbt verify --demo : plant a contradiction, then watch the gate catch it.
+# hsm verify --demo : plant a contradiction, then watch the gate catch it.
 # ---------------------------------------------------------------------------
 _CLEAN_MEDS = """\
 ---
