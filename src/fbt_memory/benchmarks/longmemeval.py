@@ -453,7 +453,7 @@ def run(data: list[dict], modes: list[str], n: int | None,
         n = len(rs) or 1
         acc = sum(r["correct"] for r in rs) / n
         rec = sum(r.get("recall") for r in rs) / n
-        toks = [r.get("ctx_tokens", 0) for r in rs]
+        toks = [r.get("ctx_tokens") or 0 for r in rs]  # errored rows have no/None ctx_tokens
         rot_vals = [r["rot"] for r in rs if r.get("rot") is not None]
         summary[m] = {"n": len(rs), "accuracy": round(100 * acc, 1),
                       "recall_at_k": round(100 * rec, 1),
