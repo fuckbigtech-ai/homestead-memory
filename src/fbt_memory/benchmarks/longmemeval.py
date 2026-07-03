@@ -44,6 +44,7 @@ _READER = None   # ("ollama", model) | ("cmd", shellcmd) | ("cc",)  — set in m
 _JUDGE = None    # ("ollama", model) | None (None -> normalized-inclusion scoring)
 _CONTEXT = "full"  # "full" (whole session) | "span" (precise relevant turns, low-token)
 _DETERMINISTIC = False  # Tier-2: enumerate-then-count in code for "how many" questions
+_CHUNK = "session"  # "session" (one note per session) | "turns" (finer turn-windows)
 
 
 def _ollama_generate(model: str, prompt: str, temperature: float = 0.0, timeout: int = 180) -> str:
@@ -118,22 +119,34 @@ SYNTHETIC: list[dict] = [
 
 
 # ----------------------------------------------------------------- vault building
+_CHUNK_TURNS = 2  # window size when chunking sessions into turn-windows
+
+
 def build_question_vault(item: dict, root: Path) -> None:
+    # Hyphen, not underscore, in filenames: qmd normalizes '_'→'-' in its qmd:// URI,
+    # so an underscore name won't round-trip (rel from search != file on disk).
     sessions, dates = _sessions_and_dates(item)
     for i, sess in enumerate(sessions):
         date = dates[i] if i < len(dates) else "2026-01-01"
         date = re.sub(r"[^0-9-]", "", str(date).split()[0])[:10] or "2026-01-01"
-        turns = sess if isinstance(sess, list) else [sess]
-        body = "\n".join(
-            f"**{t.get('role','user')}:** {t.get('content','')}" for t in turns
-            if isinstance(t, dict)
-        )
-        # Hyphen, not underscore: qmd normalizes '_'→'-' in its qmd:// URI, so an
-        # underscore filename won't round-trip (rel from search != file on disk) and
-        # every body read silently falls back to the truncated snippet.
-        note = (f"---\nname: session-{i:03d}\ndate: {date}\nstatus: reference\n"
-                f"updated: {date}\n---\n\n# Session {i} ({date})\n\n{body}\n")
-        (root / f"session-{i:03d}.md").write_text(note, encoding="utf-8")
+        turns = [t for t in (sess if isinstance(sess, list) else [sess]) if isinstance(t, dict)]
+
+        def _fmt(ts):
+            return "\n".join(f"**{t.get('role','user')}:** {t.get('content','')}" for t in ts)
+
+        if _CHUNK == "turns":
+            # Finer granularity → the exact relevant turns rank top (MemPalace's recall
+            # trick) AND the reader gets precise context (fewer tokens). The chunk name
+            # keeps the session index so recall (session-(\d+)) still resolves.
+            for j in range(0, len(turns) or 1, _CHUNK_TURNS):
+                cid = f"session-{i:03d}-chunk-{j // _CHUNK_TURNS:02d}"
+                note = (f"---\nname: {cid}\ndate: {date}\nstatus: reference\n"
+                        f"updated: {date}\n---\n\n# Session {i} ({date})\n\n{_fmt(turns[j:j + _CHUNK_TURNS])}\n")
+                (root / f"{cid}.md").write_text(note, encoding="utf-8")
+        else:
+            note = (f"---\nname: session-{i:03d}\ndate: {date}\nstatus: reference\n"
+                    f"updated: {date}\n---\n\n# Session {i} ({date})\n\n{_fmt(turns)}\n")
+            (root / f"session-{i:03d}.md").write_text(note, encoding="utf-8")
 
 
 def _resolve_note(root: Path, rel: str) -> Path | None:
@@ -292,6 +305,9 @@ def _evidence_indices(item: dict) -> set[int]:
 
 
 def run_question(item: dict, mode: str, k: int = 6) -> dict:
+    # finer chunks = more, smaller notes per session, so retrieve more of them
+    if _CHUNK == "turns":
+        k = 12
     sessions, _ = _sessions_and_dates(item)
     q = item["question"]
     gold = item.get("answer", "")
@@ -448,11 +464,14 @@ def main(argv=None) -> int:
                     help="full session (accurate, token-heavy) vs precise span (cheap, low-noise)")
     ap.add_argument("--deterministic", action="store_true",
                     help="Tier 2: enumerate-then-count in code for 'how many' questions")
+    ap.add_argument("--chunk", choices=["session", "turns"], default="session",
+                    help="one note per session vs finer turn-windows (MemPalace recall trick)")
     args = ap.parse_args(argv)
 
-    global _READER, _JUDGE, _CONTEXT, _DETERMINISTIC
+    global _READER, _JUDGE, _CONTEXT, _DETERMINISTIC, _CHUNK
     _CONTEXT = args.context
     _DETERMINISTIC = args.deterministic
+    _CHUNK = args.chunk
     if args.reader:
         _READER = (("ollama", args.reader[7:]) if args.reader.startswith("ollama:")
                    else ("cc",) if args.reader == "cc" else ("cmd", args.reader))
