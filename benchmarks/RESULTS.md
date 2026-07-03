@@ -120,3 +120,19 @@ Note: the leaderboard judge is gpt-4o; we use deepseek-v4-pro:cloud (strong stan
 labeled). For a leaderboard-exact number, run the real repo's evaluate_qa.py with
 gpt-4o on the exported hypothesis file (drop-in format). Full-500 will be official-
 judged when it lands.
+
+## DEFINITIVE — full-500 official + why we stopped (2026-07-03)
+
+**Canonical config = clean v4** (per-type adaptive prompting on raw full context; all
+experimental flags OFF by default: --deterministic, --chunk turns, --structure, --v4pp).
+
+**Full-500 `_s`, official methodology:** QA **52.8%** (official) / 53.4% (my-judge — both
+agree, harness validated) · recall@k **85%** · ~**5,247** tokens/q · RotBench **99.4**.
+
+**Five improvement experiments ALL failed to beat v4** (chunk+span 26, codex-reader 54,
+structuring 46, v4++ complete-evidence 56, vs v4 68 n=50). The QA ceiling is ARCHITECTURAL
+— beating Mem0/Zep on QA needs their write-time structured-extraction (abandons our
+verbatim/cost/verification edge). n=50 is noise-dominated (qmd retrieval nondeterminism,
+recall ±10-15%); full-500 is the stable number. **Decision: ship the real story (elite
+recall + only self-verifying + lowest cost + local + honest), not the QA crown.** Full
+writeup: vault note fbt_memory_benchmark_result_2026-07-03.
