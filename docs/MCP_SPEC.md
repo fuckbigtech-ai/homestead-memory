@@ -67,3 +67,25 @@ claude mcp add homestead-memory -- hsm mcp ~/my-vault
 
 Resources/prompts capabilities · streaming/progress · concurrency · auth (stdio is
 client-spawned) · HTTP/SSE transport (that's `hsm serve`).
+
+## v1.1 protocol addenda (from spec review — implementation contract)
+
+- Full JSON-RPC 2.0 envelopes; request `id` preserved EXACTLY (type included).
+- Notifications (no `id`) NEVER get a response — including unknown ones and
+  `notifications/cancelled` (swallowed). Unknown *requests* → `-32601`.
+- Parse error → `-32700` with `id: null`; structurally invalid message with an id →
+  `-32600`.
+- Lifecycle gating: before `initialize`, only `initialize`/`ping` are served (others
+  → `-32002` "server not initialized"); `notifications/initialized` flips ready state.
+- Version negotiation: respond with OUR `protocolVersion` (2024-11-05); client decides.
+- Transport: one JSON object per line, no embedded raw newlines, flush after every
+  write, stdout PROTOCOL-ONLY (diagnostics → stderr). No LSP Content-Length framing.
+- Tool schemas: concrete JSON Schema (`type:object`, `properties`, `required`,
+  `additionalProperties:false`), `k` clamped 1–20 (default 5).
+- `tools/list` ignores `cursor`, omits `nextCursor` (6 tools).
+- Mutating tools say so in their descriptions (`memory_ingest` rebuilds the index;
+  `memory_distill` writes distilled notes; `dry` defaults false, explicit).
+- Verify/history/search results are flattened to plain text (never raw dataclasses);
+  tool exceptions → `isError:true` content, never a crashed loop.
+- Robustness: stdin EOF → clean exit 0; BrokenPipe/SIGINT → quiet exit; MCP handlers
+  call CORE functions only (CLI functions print to stdout and would corrupt the stream).
