@@ -25,6 +25,8 @@ from ..core import vault as vaultlib
 
 PROTOCOL_VERSION = "2024-11-05"
 MAX_TEXT = 50_000
+_MAX_LINE = 10_000_000     # inbound line cap — a huge line becomes -32700, not an OOM
+_REJECT_NAN = lambda s: (_ for _ in ()).throw(ValueError(f"non-finite: {s}"))  # noqa: E731
 _K_MIN, _K_MAX, _K_DEFAULT = 1, 20, 5
 
 
@@ -49,7 +51,7 @@ TOOLS = [
     {"name": "memory_verify",
      "description": "Run the memory-integrity gate (RotBench): score /100 plus every "
                     "failure/warning. Read-only.",
-     "inputSchema": {"type": "object", "additionalProperties": False,
+     "inputSchema": {"type": "object", "additionalProperties": False, "required": [],
                      "properties": {"deep": {"type": "boolean", "default": False,
                                              "description": "also run retrieval-resilience/"
                                                             "fixtures/freshness checks"}}}},
@@ -65,16 +67,43 @@ TOOLS = [
     {"name": "memory_ingest",
      "description": "MUTATES local state: (re)build the search index (qmd) and the "
                     "temporal sidecar for the vault. Can take a while on large vaults.",
-     "inputSchema": {"type": "object", "additionalProperties": False, "properties": {}}},
+     "inputSchema": {"type": "object", "additionalProperties": False, "required": [], "properties": {}}},
     {"name": "memory_distill",
      "description": "MUTATES local state unless dry=true: run the write-time distilled "
                     "layer (extract cited entity facts from new/changed notes).",
-     "inputSchema": {"type": "object", "additionalProperties": False,
+     "inputSchema": {"type": "object", "additionalProperties": False, "required": [],
                      "properties": {"dry": {"type": "boolean", "default": False}}}},
 ]
 
 
 # ------------------------------------------------------------- tool execution
+_TYPE_MAP = {"string": str, "integer": int, "boolean": bool}
+
+
+def _validate_args(tool: dict, args: dict) -> str | None:
+    """Enforce the advertised inputSchema: required keys, per-key types (bools must
+    be REAL bools — 'false' must not silently enable a mutating tool), and
+    additionalProperties:false. Returns an error message or None."""
+    schema = tool["inputSchema"]
+    props = schema.get("properties", {})
+    for req in schema.get("required", []):
+        if req not in args:
+            return f"missing required argument: {req}"
+    for key, val in args.items():
+        if key not in props:
+            return f"unexpected argument: {key}"
+        want = _TYPE_MAP.get(props[key].get("type"))
+        if want is bool:
+            if not isinstance(val, bool):
+                return f"argument {key} must be a boolean"
+        elif want is int:
+            if isinstance(val, bool) or not isinstance(val, int):
+                return f"argument {key} must be an integer"
+        elif want is str and not isinstance(val, str):
+            return f"argument {key} must be a string"
+    return None
+
+
 def _clamp_k(args: dict) -> int:
     try:
         k = int(args.get("k", _K_DEFAULT))
@@ -159,24 +188,34 @@ def _err(code: int, message: str) -> dict:
 class ServerState:
     def __init__(self, vault: Path):
         self.vault = vault
+        self.initialize_seen = False
         self.initialized = False
 
 
 def handle_message(msg, state: ServerState):
     """Process ONE decoded JSON-RPC message. Returns a response dict, or None for
     notifications / undecodable structures without an id (per spec: no response)."""
-    if not isinstance(msg, dict) or "method" not in msg or msg.get("jsonrpc") != "2.0":
-        if isinstance(msg, dict) and "id" in msg:
-            return _resp(msg.get("id"), error=_err(-32600, "invalid request"))
+    if not isinstance(msg, dict):
         return None
-    method, has_id, mid = msg["method"], "id" in msg, msg.get("id")
+    has_id, mid = "id" in msg, msg.get("id")
+    # id must be string/number/null — an invalid id shape is structurally invalid
+    # and cannot be echoed back: respond -32600 with id null.
+    if has_id and not isinstance(mid, (str, int, float, type(None))):
+        return _resp(None, error=_err(-32600, "invalid id"))
+    method = msg.get("method")
+    if msg.get("jsonrpc") != "2.0" or not isinstance(method, str):
+        if has_id:
+            return _resp(mid, error=_err(-32600, "invalid request"))
+        return None
 
     if not has_id:                       # notification — NEVER respond
-        if method == "notifications/initialized":
+        # only a REAL initialize handshake unlocks the server (lifecycle gating)
+        if method == "notifications/initialized" and state.initialize_seen:
             state.initialized = True
         return None                      # unknown notifications (incl. cancelled): swallow
 
     if method == "initialize":
+        state.initialize_seen = True
         return _resp(mid, result={
             "protocolVersion": PROTOCOL_VERSION,   # we answer with OUR version
             "capabilities": {"tools": {}},
@@ -189,13 +228,23 @@ def handle_message(msg, state: ServerState):
     if method == "tools/list":           # cursor ignored; nextCursor omitted (6 tools)
         return _resp(mid, result={"tools": TOOLS})
     if method == "tools/call":
-        params = msg.get("params") or {}
+        params = msg.get("params")
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            return _resp(mid, error=_err(-32602, "params must be an object"))
         name = params.get("name")
-        args = params.get("arguments") or {}
-        if not any(t["name"] == name for t in TOOLS):
-            return _resp(mid, error=_err(-32602, f"unknown tool: {name}"))
+        args = params.get("arguments")
+        if args is None:                 # absent/null defaults to {}; any other
+            args = {}                    # non-object shape is an error (no `or {}`)
         if not isinstance(args, dict):
             return _resp(mid, error=_err(-32602, "arguments must be an object"))
+        tool = next((t for t in TOOLS if t["name"] == name), None)
+        if tool is None:
+            return _resp(mid, error=_err(-32602, f"unknown tool: {name}"))
+        bad = _validate_args(tool, args)
+        if bad:
+            return _resp(mid, error=_err(-32602, bad))
         try:
             return _resp(mid, result=call_tool(name, args, state.vault))
         except Exception as e:           # a tool failure must never kill the loop
@@ -216,14 +265,18 @@ def serve(vault: Path | str | None = None) -> int:
             line = line.strip()
             if not line:
                 continue
-            try:
-                msg = json.loads(line)
-            except json.JSONDecodeError:
-                out = _resp(None, error=_err(-32700, "parse error"))
+            if len(line) > _MAX_LINE:
+                print(f"hsm mcp: dropping oversized line ({len(line)} bytes)", file=sys.stderr)
+                out = _resp(None, error=_err(-32700, "parse error: line too large"))
             else:
-                out = handle_message(msg, state)
+                try:
+                    msg = json.loads(line, parse_constant=_REJECT_NAN)  # strict: no NaN/Inf
+                except ValueError:
+                    out = _resp(None, error=_err(-32700, "parse error"))
+                else:
+                    out = handle_message(msg, state)
             if out is not None:
-                sys.stdout.write(json.dumps(out) + "\n")
+                sys.stdout.write(json.dumps(out, allow_nan=False) + "\n")
                 sys.stdout.flush()
     except (BrokenPipeError, KeyboardInterrupt):
         pass                              # client went away — quiet exit

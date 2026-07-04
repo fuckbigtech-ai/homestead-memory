@@ -47,6 +47,12 @@ def test_gated_before_initialized_ping_allowed(tmp_path):
 def test_notifications_never_get_responses(tmp_path):
     s = _state(tmp_path, initialized=False)
     init_note = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+    # PREMATURE initialized (no initialize handshake yet) must NOT unlock the server
+    assert mcp.handle_message(init_note, s) is None
+    assert s.initialized is False
+    assert mcp.handle_message(_req("tools/list"), s)["error"]["code"] == -32002
+    # real handshake: initialize → initialized → unlocked
+    mcp.handle_message(_req("initialize", mid=0), s)
     assert mcp.handle_message(init_note, s) is None
     assert s.initialized is True
     cancelled = {"jsonrpc": "2.0", "method": "notifications/cancelled"}
@@ -145,3 +151,42 @@ def test_stdio_smoke_full_handshake(tmp_path):
     assert by_id[None]["error"]["code"] == -32700          # parse error, id null
     assert by_id[3]["result"] == {}                        # ping AFTER the bad line
     assert proc.returncode == 0                            # EOF → clean exit
+
+
+# ------------------------------------------------ audit-driven negative cases
+def test_malformed_params_shapes_do_not_crash(tmp_path):
+    s = _state(tmp_path)
+    r = mcp.handle_message(_req("tools/call") | {"params": "not-an-object"}, s)
+    assert r["error"]["code"] == -32602
+    for bad_args in ([], "", 0, False):
+        r = mcp.handle_message(_req("tools/call", name="memory_verify",
+                                    arguments=bad_args), s)
+        assert r["error"]["code"] == -32602               # falsy non-objects rejected
+
+
+def test_non_string_method_and_invalid_id_shape(tmp_path):
+    s = _state(tmp_path)
+    r = mcp.handle_message({"jsonrpc": "2.0", "id": 1, "method": 3}, s)
+    assert r["error"]["code"] == -32600                   # method must be a string
+    r = mcp.handle_message({"jsonrpc": "2.0", "id": {"bad": "shape"}, "method": "ping"}, s)
+    assert r["id"] is None and r["error"]["code"] == -32600   # un-echoable id → null
+
+
+def test_boolean_string_rejected_on_mutating_tool(tmp_path):
+    s = _state(tmp_path)
+    r = mcp.handle_message(_req("tools/call", name="memory_distill",
+                                arguments={"dry": "false"}), s)
+    assert r["error"]["code"] == -32602                   # 'false' must NOT coerce truthy
+    r = mcp.handle_message(_req("tools/call", name="memory_verify",
+                                arguments={"deep": "false"}), s)
+    assert r["error"]["code"] == -32602
+
+
+def test_unexpected_and_wrong_typed_args_rejected(tmp_path):
+    s = _state(tmp_path)
+    r = mcp.handle_message(_req("tools/call", name="memory_search",
+                                arguments={"query": "x", "junk": 1}), s)
+    assert r["error"]["code"] == -32602                   # additionalProperties:false
+    r = mcp.handle_message(_req("tools/call", name="memory_search",
+                                arguments={"query": 42}), s)
+    assert r["error"]["code"] == -32602                   # query must be a string
