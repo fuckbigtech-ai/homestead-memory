@@ -45,6 +45,7 @@ _JUDGE = None    # ("ollama", model) | None (None -> normalized-inclusion scorin
 _CONTEXT = "full"  # "full" (whole session) | "span" (precise relevant turns, low-token)
 _DETERMINISTIC = False  # Tier-2: enumerate-then-count in code for "how many" questions
 _CHUNK = "session"  # "session" (one note per session) | "turns" (finer turn-windows)
+_DISTILL_MODE = False  # run the distilled layer over each question vault before retrieval
 _STRUCTURE = False  # digest retrieved raw evidence → clean facts before the reader answers
 _V4PP = False  # v4++: complete-evidence retrieval for aggregation/recency types (Mem0-style)
 
@@ -362,7 +363,16 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
     with tempfile.TemporaryDirectory(prefix="lme-") as d:
         root = Path(d)
         build_question_vault(item, root)
-        rot = verify.verify_vault(root)  # RotBench on the constructed vault
+        if _DISTILL_MODE:
+            # write-time distilled layer over the question vault (distill model = the
+            # run's ollama reader); distilled notes get indexed alongside the sessions
+            from ..core import distill as _dm
+            dmodel = _READER[1] if (_READER and _READER[0] == "ollama") else None
+            try:
+                _dm.distill(root, model=dmodel)
+            except Exception:
+                pass                      # distill failure degrades to verbatim-only
+        rot = verify.verify_vault(root)  # RotBench on the constructed vault (incl. distill_integrity)
         ing = index.ingest(root)
         hits = index.search(q, root, k=k * 2 if mode == "b" else k)
         # knowledge-update: order the wider evidence chronologically so 'latest wins' is legible
@@ -522,14 +532,17 @@ def main(argv=None) -> int:
                     help="digest retrieved evidence → clean facts before the reader (beat-both step)")
     ap.add_argument("--v4pp", action="store_true",
                     help="v4++: complete-evidence retrieval for aggregation/recency types (Mem0-style)")
+    ap.add_argument("--distill", action="store_true",
+                    help="run the write-time distilled layer over each question vault (the v0.2 test)")
     args = ap.parse_args(argv)
 
-    global _READER, _JUDGE, _CONTEXT, _DETERMINISTIC, _CHUNK, _STRUCTURE, _V4PP
+    global _READER, _JUDGE, _CONTEXT, _DETERMINISTIC, _CHUNK, _STRUCTURE, _V4PP, _DISTILL_MODE
     _CONTEXT = args.context
     _DETERMINISTIC = args.deterministic
     _CHUNK = args.chunk
     _STRUCTURE = args.structure
     _V4PP = args.v4pp
+    _DISTILL_MODE = args.distill
     if args.reader:
         _READER = (("ollama", args.reader[7:]) if args.reader.startswith("ollama:")
                    else ("codex",) if args.reader == "codex"
