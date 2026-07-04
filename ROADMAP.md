@@ -2,29 +2,37 @@
 
 Building in public. **Stop renting your mind.**
 
-## v0.1 — the core (in progress, most shipped)
+## v0.1 — the core (shipped)
 
-- [x] Package + `hsm` CLI (cross-platform Python)
-- [x] `core/vault.py` — markdown vault model (frontmatter, wikilinks, recency), de-personalized
+- [x] Package + `hsm` CLI (cross-platform Python, zero deps)
+- [x] `core/vault.py` — markdown vault model (frontmatter, wikilinks, recency)
 - [x] **`hsm verify` + `--demo`** — memory-integrity gate; catches rot live, nonzero exit
 - [x] `core/index.py` — qmd hybrid retrieval (+ direct-scan fallback) → `hsm ingest` / `ask`
 - [x] `core/temporal.py` — bi-temporal from changelogs → `hsm history` / `--as-of`
 - [x] `.hsmignore` exclusion parity (quarantine generated/report notes)
-- [x] LongMemEval harness (real `--data` + synthetic validation) + RotBench
-- [ ] Full LongMemEval-S (500Q) published number — A vs B + delta *(the launch proof)*
-- [ ] `verify` full-fidelity: qmd-freshness + forced-fallback + fixtures checks
-- [ ] `api/server.py` — local HTTP API + the `oc-route` router (builder surface)
+- [x] `verify --deep`: fallback-resilience + fixtures + freshness families
+- [x] `api/server.py` — local HTTP API (`hsm serve`), hardened (auth, anti-rebind, loopback)
+- [x] LongMemEval harness + official-methodology eval + RotBench
+- [x] Full-500 `_s` published numbers (see `benchmarks/RESULTS.md`)
+
+## v0.2 — the distilled layer + distribution (in progress)
+
+- [x] **`hsm distill`** — write-time, cited, verifiable distilled layer (docs/DISTILL_SPEC.md)
+- [x] `verify` distill_integrity: uncited_claim + dangling_citation (auditable extraction)
+- [ ] `hsm mcp` — MCP server for Claude Code / Desktop / Cursor (docs/MCP_SPEC.md)
+- [ ] Parent-document retrieval (chunk-index → parent-session reading)
+- [ ] 3-OS CI (ubuntu/macos/windows) — the cross-platform proof
+- [ ] `benchmarks/ROTBENCH.md` — the integrity score as an open spec
+- [ ] Honest full-500 re-run with the distilled layer (publish whatever it says)
 - [ ] README hero GIF: "watch it catch its own rot"
 
-## Then (per the FuckBigTech plan)
+## Then
 
-- **Publish** the number → GitHub / Show HN / r/LocalLLaMA (dev-first).
-- **Weekly cadence:** one ship + one newsjack + one rot/benchmark post.
-- **HOMESTEAD** consumer app adopts the verify moat (a "MEMORY INTACT" badge).
-- **Enterprise** (inbound only, billed via Kinetic Labs): the OS-agnostic API/router
-  is the wedge Osaurus (Mac-Swift-only) structurally can't follow.
+- **Launch**: GitHub (fuckbigtech org) → r/LocalLLaMA → Show HN → X. Weekly cadence:
+  1 ship + 1 auto Rot Report + 1 newsjack.
+- **HOMESTEAD app**: "MEMORY INTACT" badge via the core's verify.
+- **Enterprise** (inbound, via Kinetic Labs): the hardened API + MCP.
 
 ## Non-goals (for now)
 
-Heavy temporal graph DB · a second marketing motion · enterprise hardening before
-dev traction. Stay focused: the number, then the launch.
+Graph databases · unauditable extraction · benchmark-gaming · a second marketing motion.
