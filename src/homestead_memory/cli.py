@@ -142,6 +142,11 @@ def cmd_distill(args) -> int:
     return 0
 
 
+def cmd_mcp(args) -> int:
+    from .api import mcp_server
+    return mcp_server.serve(args.path)
+
+
 def cmd_serve(args) -> int:
     from .api import server
     server.serve(args.path, host=args.host, port=args.port,
@@ -199,6 +204,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="extraction model (default: $HSM_DISTILL_MODEL or llama3.1:latest via ollama)")
     pd.add_argument("--dry", action="store_true", help="report without writing")
     pd.set_defaults(func=cmd_distill)
+
+    pm = sub.add_parser("mcp", help="run the MCP server on stdio (Claude Code/Desktop/Cursor)")
+    pm.add_argument("path", nargs="?", default=None,
+                    help="vault directory (default: $HSM_VAULT, else cwd)")
+    pm.set_defaults(func=cmd_mcp)
 
     ps = sub.add_parser("serve", help="run the local HTTP API (point any agent at it)")
     ps.add_argument("path", nargs="?", default=None,
