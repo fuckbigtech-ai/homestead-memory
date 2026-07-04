@@ -136,3 +136,18 @@ verbatim/cost/verification edge). n=50 is noise-dominated (qmd retrieval nondete
 recall ±10-15%); full-500 is the stable number. **Decision: ship the real story (elite
 recall + only self-verifying + lowest cost + local + honest), not the QA crown.** Full
 writeup: vault note fbt_memory_benchmark_result_2026-07-03.
+
+## Distilled-layer run (n=50, 2026-07-04) — INVALID (rate-limit starvation)
+
+First measurement attempt of `--distill` came back QA 18% — but **41/50 predictions
+were EMPTY**: the ~2,400 per-session extraction calls exhausted the cloud provider's
+rate limit (HTTP 429), which then starved the READER and JUDGE calls too. The number
+measures the rate limiter, not the distilled layer. **Distill's benchmark effect is
+UNMEASURED** (the layer's own artifacts were fine: RotBench 99.6 incl. distill_integrity).
+
+Fixes shipped: 429/5xx exponential backoff in both ollama call sites. Lesson logged:
+call-amplifying designs (48 extractions/question) need throttling and a call budget;
+this was the campaign's third cloud-dependency contamination (ccr timeout, qmd index
+collision, provider 429). Re-measure later with backoff + local extraction model —
+non-blocking for launch (distill is a product feature for coherent personal vaults;
+its live E2E is verified — see the demo).

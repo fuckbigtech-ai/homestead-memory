@@ -51,14 +51,26 @@ _V4PP = False  # v4++: complete-evidence retrieval for aggregation/recency types
 
 
 def _ollama_generate(model: str, prompt: str, temperature: float = 0.0, timeout: int = 180) -> str:
-    """Deterministic (temp-0) generation via the local ollama HTTP API — reliable and
-    reproducible, unlike the flat-rate cloud path that timed out mid-batch."""
+    """Deterministic (temp-0) generation via the local ollama HTTP API, with 429/5xx
+    exponential backoff (the 2026-07-04 post-mortem: an unthrottled batch starved 41/50
+    predictions into empties via rate limiting — an invalid run, silently)."""
+    import time, urllib.error
     body = json.dumps({"model": model, "prompt": prompt, "stream": False,
                        "options": {"temperature": temperature}}).encode()
-    req = urllib.request.Request(_OLLAMA_API, data=body,
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read()).get("response", "").strip()
+    delay = 2.0
+    for attempt in range(5):
+        req = urllib.request.Request(_OLLAMA_API, data=body,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read()).get("response", "").strip()
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 500, 502, 503) and attempt < 4:
+                time.sleep(delay)
+                delay = min(delay * 2, 60)
+                continue
+            raise
+    return ""
 
 
 # --------------------------------------------------------------------------- data

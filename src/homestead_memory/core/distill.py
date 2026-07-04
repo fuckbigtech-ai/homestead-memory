@@ -25,6 +25,7 @@ import hashlib
 import json
 import re
 import unicodedata
+import urllib.error
 import urllib.request
 from datetime import date
 from pathlib import Path
@@ -116,13 +117,26 @@ JSON:"""
 
 
 def _ollama_generate(model: str, prompt: str, timeout: int) -> str:
-    req = urllib.request.Request(
-        _OLLAMA_API,
-        data=json.dumps({"model": model, "prompt": prompt, "stream": False,
-                         "options": {"temperature": 0}}).encode(),
-        headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        return json.loads(r.read()).get("response", "")
+    """POST to local ollama. Retries 429/5xx with exponential backoff — a big batch
+    (e.g. per-session extraction) must throttle, not silently starve (the 2026-07-04
+    rate-limit post-mortem: 41/50 empty predictions from unhandled 429s)."""
+    import time
+    body = json.dumps({"model": model, "prompt": prompt, "stream": False,
+                       "options": {"temperature": 0}}).encode()
+    delay = 2.0
+    for attempt in range(5):
+        req = urllib.request.Request(_OLLAMA_API, data=body,
+                                     headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read()).get("response", "")
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 500, 502, 503) and attempt < 4:
+                time.sleep(delay)
+                delay = min(delay * 2, 60)
+                continue
+            raise
+    return ""
 
 
 def _ollama_extract(model: str, rel: str, body: str, timeout: int = 240) -> list:
