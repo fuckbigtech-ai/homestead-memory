@@ -32,6 +32,10 @@ _ENTRY_RE = re.compile(r"^\s*-\s*(\d{4}-\d{2}-\d{2})\s*:\s*(.*)$", re.M)
 _KNOWN_FIELDS = "status|type|brand|priority|stage|owner|phase|horizon|next_action"
 _TRANSITION_RE = re.compile(
     rf"^({_KNOWN_FIELDS})\s+(\S+)\s*(?:->|→)\s*([^\s.,;]+)", re.I)
+# Distill-canonical quoted transitions (additive; handles multi-word values):
+#   update <field>: "<old>" -> "<new>"
+_QUOTED_TRANSITION_RE = re.compile(
+    r'^update\s+([a-z0-9_-]+):\s*"(.*?)"\s*(?:->|→)\s*"(.*?)"', re.I)
 
 
 def parse_changelog(text: str) -> list[dict]:
@@ -43,10 +47,14 @@ def parse_changelog(text: str) -> list[dict]:
     out = []
     for em in _ENTRY_RE.finditer(section):
         date, body = em.group(1), em.group(2).strip()
-        tm = _TRANSITION_RE.search(body)
         field = old = new = None
-        if tm:
-            field, old, new = tm.group(1).lower(), tm.group(2), tm.group(3)
+        qm = _QUOTED_TRANSITION_RE.search(body)     # distill-canonical form first
+        if qm:
+            field, old, new = qm.group(1).lower(), qm.group(2), qm.group(3)
+        else:
+            tm = _TRANSITION_RE.search(body)
+            if tm:
+                field, old, new = tm.group(1).lower(), tm.group(2), tm.group(3)
         out.append({"date": date, "field": field, "old": old, "new": new, "text": body})
     return out
 
