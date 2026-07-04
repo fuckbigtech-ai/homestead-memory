@@ -117,6 +117,45 @@ def deep_checks(vault: Path | str | None = None) -> list[Finding]:
     return out
 
 
+_SOURCE_CITE_RE = re.compile(r"\(source:\s*([^)]+)\)")
+
+
+def _check_distilled(txt: str, rp: str, vroot: Path) -> list[Finding]:
+    """distill_integrity: (a) uncited claim — a body bullet with no `(source: …)`;
+    (b) dangling citation — a cited path that doesn't resolve (path-based, per spec)."""
+    out: list[Finding] = []
+    body = txt.split("---", 2)[-1]
+    in_changelog = False
+    for line in body.splitlines():
+        s = line.strip()
+        if s.startswith("#"):
+            in_changelog = "changelog" in s.casefold()
+            continue
+        if not s.startswith("- "):
+            continue
+        cites = _SOURCE_CITE_RE.findall(s)
+        if not cites and not in_changelog:
+            out.append(Finding("fail", "uncited_claim", rp,
+                               f"distilled claim has no (source: …): {s[:70]!r}"))
+        for c in cites:
+            c = c.strip()
+            # citation must be a RELATIVE .md path that resolves INSIDE the vault —
+            # absolute paths and ../ traversal are rot even if the file exists.
+            if Path(c).is_absolute() or not c.endswith(".md"):
+                out.append(Finding("fail", "dangling_citation", rp,
+                                   f"(source: {c}) is not a relative .md path"))
+                continue
+            cand = (vroot / c)
+            try:
+                inside = cand.resolve().is_relative_to(vroot.resolve())
+            except (OSError, ValueError):
+                inside = False
+            if not (inside and cand.exists()):
+                out.append(Finding("fail", "dangling_citation", rp,
+                                   f"(source: {c}) does not resolve inside the vault"))
+    return out
+
+
 def verify_vault(vault: Path | str | None = None, deep: bool = False) -> dict:
     """Run the integrity checks over a vault. Returns a report dict. deep=True adds
     the retrieval-resilience + fixtures + freshness families."""
@@ -156,6 +195,11 @@ def verify_vault(vault: Path | str | None = None, deep: bool = False) -> dict:
         stale = _stale_body(txt, f.get("updated"))
         if stale:
             findings.append(Finding("warn", "stale_body", rp, stale))
+
+        # distill_integrity — the auditable-extraction family (RotBench extension).
+        # Every claim in a distilled note must carry a citation that resolves.
+        if f.get("type") == "distilled" or rp.startswith("distilled/"):
+            findings += _check_distilled(txt, rp, vaultlib._resolve(vault))
 
     if deep:
         findings += deep_checks(vault)
@@ -255,10 +299,21 @@ def run_demo() -> int:
         print_report(clean)
 
         print("\n② now something rots — a linked note is deleted, the fact starts")
-        print("   arguing with itself about its status, and its body drifts past")
-        print("   its own `updated:` date. A cloud tool would never tell you:\n")
+        print("   arguing with itself about its status, its body drifts past its")
+        print("   own `updated:` date, and a DISTILLED note carries an uncited")
+        print("   claim + a citation to a source that no longer exists. A cloud")
+        print("   tool would never tell you:\n")
         (v / "meds.md").unlink()  # dangling [[meds]]
         (v / "penicillin-allergy.md").write_text(_ROTTED_FACT, encoding="utf-8")
+        (v / "distilled").mkdir()
+        (v / "distilled" / "user.md").write_text(
+            "---\nname: user\ntype: distilled\nentity: User\nupdated: 2026-07-01\n---\n\n"
+            "# User\n\n"
+            "- allergy: penicillin (source: penicillin-allergy.md)\n"   # good claim
+            "- favorite_drink: espresso\n"                              # UNCITED claim
+            "- home_city: Berlin (source: deleted-note.md)\n"           # DANGLING citation
+            "\n## Changelog\n- 2026-07-01: recorded allergy: \"penicillin\" (source: penicillin-allergy.md)\n",
+            encoding="utf-8")
         rotted = verify_vault(v)
         print_report(rotted)
 

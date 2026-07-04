@@ -128,6 +128,20 @@ def cmd_verify(args) -> int:
     return 0 if rep["ok"] else 1
 
 
+def cmd_distill(args) -> int:
+    from .core import distill
+    rep = distill.distill(args.path, model=args.model, dry=args.dry)
+    print(f"distill{' (dry)' if rep['dry'] else ''}: scanned {rep['scanned']} notes, "
+          f"{rep['changed']} new/changed")
+    print(f"  facts kept {rep['facts']} · dropped by cite-or-drop {rep['dropped']} · "
+          f"failed notes {rep['failed_notes']} (retried next run)")
+    print(f"  entities: {rep['entities_created']} created, {rep['entities_updated']} updated · "
+          f"{rep['changelog_lines']} changelog lines")
+    if rep["changelog_lines"] and not rep["dry"]:
+        print("next:  hsm ingest   # make the distilled layer searchable")
+    return 0
+
+
 def cmd_serve(args) -> int:
     from .api import server
     server.serve(args.path, host=args.host, port=args.port,
@@ -177,6 +191,14 @@ def build_parser() -> argparse.ArgumentParser:
                     help="also run retrieval-resilience + fixtures + freshness checks")
     pv.add_argument("--quiet", action="store_true", help="print only the score line")
     pv.set_defaults(func=cmd_verify)
+
+    pd = sub.add_parser("distill", help="build/refresh the distilled layer (write-time, cited facts)")
+    pd.add_argument("path", nargs="?", default=None,
+                    help="vault directory (default: $HSM_VAULT, else cwd)")
+    pd.add_argument("--model", default=None,
+                    help="extraction model (default: $HSM_DISTILL_MODEL or llama3.1:latest via ollama)")
+    pd.add_argument("--dry", action="store_true", help="report without writing")
+    pd.set_defaults(func=cmd_distill)
 
     ps = sub.add_parser("serve", help="run the local HTTP API (point any agent at it)")
     ps.add_argument("path", nargs="?", default=None,
