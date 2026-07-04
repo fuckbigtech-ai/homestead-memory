@@ -8,6 +8,8 @@ Local-first, verifiable AI memory. Your notes stay plain markdown you can read,
 Every other memory layer asks you to *hope* it remembers. This one lets you
 *watch it prove it didn't rot:*
 
+![hsm verify --demo: a clean vault scores MEMORY INTACT 100/100, then rot is planted and caught live: ROT DETECTED 0/100 with every finding named](docs/demo.gif)
+
 ```bash
 pip install homestead-memory      # macOS / Linux / Windows (pure Python, zero deps)
 
