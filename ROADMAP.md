@@ -32,6 +32,10 @@ Building in public. **Stop renting your mind.**
   1 ship + 1 auto Rot Report + 1 newsjack.
 - **HOMESTEAD app**: "MEMORY INTACT" badge via the core's verify.
 - **Enterprise** (inbound, via Kinetic Labs): the hardened API + MCP.
+- **Local compounding loop**: memory that gets better the more you use it. Distill + feedback
+  runs on-device, privacy-preserving, no telemetry ever leaves the machine. (The frontier-lab
+  move is "your usage telemetry post-trains our model." Ours is the same compounding, kept
+  local-first, so the improvement stays yours.)
 
 ## Non-goals (for now)
 
