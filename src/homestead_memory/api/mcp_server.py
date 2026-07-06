@@ -42,7 +42,11 @@ TOOLS = [
                     "(and synthesize an answer if a reader is configured via HSM_READER).",
      "inputSchema": {"type": "object", "additionalProperties": False,
                      "required": ["query"],
-                     "properties": {"query": {"type": "string"}, "k": _k_schema()}}},
+                     "properties": {"query": {"type": "string"}, "k": _k_schema(),
+                                    "type": {"type": "string",
+                                             "enum": ["temporal-reasoning", "knowledge-update",
+                                                      "multi-session", "default"],
+                                             "description": "question type (default: auto-classified)"}}}},
     {"name": "memory_search",
      "description": "Search the memory: ranked passages (title, path, score, snippet).",
      "inputSchema": {"type": "object", "additionalProperties": False,
@@ -133,10 +137,12 @@ def call_tool(name: str, args: dict, vault: Path) -> dict:
     """Execute one tool against core functions. Exceptions become isError results
     in the caller — this function may raise."""
     if name == "memory_ask":
-        res = index.ask(str(args["query"]), vault, k=_clamp_k(args))
+        qt = args.get("type")
+        res = index.ask(str(args["query"]), vault, k=_clamp_k(args),
+                        question_type=str(qt) if qt else None)
         if res["answer"]:
-            return _text_result(f"{res['answer']}\n\n— sources ({res['engine']}):\n"
-                                + _fmt_hits(res["hits"]))
+            return _text_result(f"{res['answer']}\n\n— sources ({res['engine']} · "
+                                f"{res['question_type']}):\n" + _fmt_hits(res["hits"]))
         return _text_result(f"top passages ({res['engine']}):\n" + _fmt_hits(res["hits"]))
     if name == "memory_search":
         return _text_result(_fmt_hits(index.search(str(args["query"]), vault, k=_clamp_k(args))))
