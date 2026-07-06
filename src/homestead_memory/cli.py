@@ -121,6 +121,25 @@ def cmd_ask(args) -> int:
     return 0
 
 
+def cmd_tune(args) -> int:
+    from .core import tuning
+    rep = tuning.tune(args.path)
+    if not rep["ok"]:
+        print(rep["reason"], file=sys.stderr)
+        return 1
+    print(f"tuned k over {rep['fixtures']} fixtures — this is FIXTURE recall, so make "
+          f"them representative (a bigger k buys recall with broader context):\n")
+    for k in sorted(rep["per_k"]):
+        mark = "  ← chosen" if k == rep["chosen_k"] else ""
+        print(f"  k={k:<3} fixture recall {rep['per_k'][k]:.0%}{mark}")
+    delta = rep["recall_after"] - rep["recall_before"]
+    sign = "+" if delta >= 0 else ""
+    print(f"\nfixture recall {rep['recall_before']:.0%} → {rep['recall_after']:.0%} "
+          f"({sign}{delta:.0%}) at k={rep['chosen_k']}, written to .hsm/tuning.json (local).")
+    print("`hsm ask` now uses it. `hsm verify` still gates — tuning changed retrieval, never your notes.")
+    return 0
+
+
 def cmd_verify(args) -> int:
     from .core import verify
     if args.demo:
@@ -178,7 +197,8 @@ def build_parser() -> argparse.ArgumentParser:
     pa.add_argument("question")
     pa.add_argument("path", nargs="?", default=None,
                     help="vault directory (default: $HSM_VAULT, else cwd)")
-    pa.add_argument("-k", type=int, default=5, help="number of passages to retrieve")
+    pa.add_argument("-k", type=int, default=None,
+                    help="passages to retrieve (default: tuned via `hsm tune`, else 5)")
     pa.add_argument("--type", dest="type", default=None,
                     choices=["temporal-reasoning", "knowledge-update", "multi-session", "default"],
                     help="question type (default: auto-classified by the heuristic router)")
@@ -211,6 +231,13 @@ def build_parser() -> argparse.ArgumentParser:
                     help="extraction model (default: $HSM_DISTILL_MODEL or llama3.1:latest via ollama)")
     pd.add_argument("--dry", action="store_true", help="report without writing")
     pd.set_defaults(func=cmd_distill)
+
+    pt = sub.add_parser("tune",
+                        help="grid-search retrieval on your fixtures → .hsm/tuning.json "
+                             "(measured, local self-improvement)")
+    pt.add_argument("path", nargs="?", default=None,
+                    help="vault directory (default: $HSM_VAULT, else cwd)")
+    pt.set_defaults(func=cmd_tune)
 
     pm = sub.add_parser("mcp", help="run the MCP server on stdio (Claude Code/Desktop/Cursor)")
     pm.add_argument("path", nargs="?", default=None,

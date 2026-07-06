@@ -27,6 +27,8 @@ from datetime import date
 from pathlib import Path
 
 from . import chunking
+from . import telemetry
+from . import tuning
 from . import vault as vaultlib
 
 QMD_INDEX = "homestead-memory"        # isolated index — never the user's default
@@ -328,16 +330,19 @@ def _est_tokens(text: str) -> int:
     return (len(text) + 3) // 4
 
 
-def ask(query: str, vault: Path | str | None = None, k: int = 5,
+def ask(query: str, vault: Path | str | None = None, k: int | None = None,
         question_type: str | None = None, token_budget: int = 6000) -> dict:
     """Retrieve, then synthesize an answer with a reader if one is configured
     (env HSM_READER, a shell command that reads the prompt on stdin); otherwise return
     the assembled context as the answer material.
 
-    question_type: 'temporal-reasoning' | 'knowledge-update' | 'multi-session' |
+    k: passages to retrieve; None uses the tuned breadth for this vault (`hsm tune`),
+    else 5. question_type: 'temporal-reasoning' | 'knowledge-update' | 'multi-session' |
     'default'. If None, a heuristic router classifies the query. token_budget caps the
     assembled context (~4 chars/token)."""
     v = vaultlib._resolve(vault)
+    if k is None:                          # unset → the tuned breadth for THIS vault, else 5
+        k = tuning.tuned_k(v)              # validated + clamped (a hand-edited tuning.json is safe)
     hits = search(query, v, k)
     qtype = question_type or classify_question(query)
     if qtype not in _KNOWN_TYPES:      # any bad input (CLI/API/MCP) → safe default
@@ -368,6 +373,12 @@ def ask(query: str, vault: Path | str | None = None, k: int = 5,
             answer = ((raw[marks[-1].end():].strip() if marks else raw) or None)
         except Exception:
             answer = None
+    telemetry.log(v, {"type": "ask",
+                      "query_hash": hashlib.sha1(query.encode("utf-8")).hexdigest()[:16],
+                      "question_type": qtype, "k": k, "n_hits": len(hits),
+                      "answered": answer is not None,
+                      "top": hits[0]["rel"] if hits else None,
+                      "context_tokens": _est_tokens(context)})
     return {"query": query, "hits": hits, "context": context, "answer": answer,
             "question_type": qtype, "context_tokens": _est_tokens(context),
             "engine": hits[0]["engine"] if hits else "none"}
