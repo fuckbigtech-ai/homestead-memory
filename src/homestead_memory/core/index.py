@@ -46,6 +46,21 @@ def collection_name(vault: Path) -> str:
     return f"fbt_{h}"
 
 
+def _vault_content_hash(vault: Path) -> str:
+    """A stable digest of every note's (relpath, bytes). Lets `verify --deep` detect
+    that the vault changed since the last ingest — otherwise qmd can ghost-match stale
+    embeddings against content that has since been edited."""
+    h = hashlib.sha1()
+    for p, rel in sorted(vaultlib.iter_notes(vault), key=lambda t: t[1].as_posix()):
+        h.update(rel.as_posix().encode() + b"\0")
+        try:
+            h.update(p.read_bytes())
+        except OSError:
+            pass
+        h.update(b"\0")
+    return h.hexdigest()
+
+
 def _qmd(*args: str, timeout: int = 900) -> subprocess.CompletedProcess:
     return subprocess.run([_QMD, *args], capture_output=True, text=True,
                           timeout=timeout, stdin=subprocess.DEVNULL)
@@ -75,6 +90,15 @@ def ingest(vault: Path | str | None = None) -> dict:
         if r.returncode != 0:
             _qmd("update", "--index", QMD_INDEX)   # fall back to update if add balked
     emb = _qmd("embed", "--index", QMD_INDEX)
+    if emb.returncode == 0:                # record the content hash ONLY on a clean embed, so
+        try:                              # a failed/stale index doesn't suppress index_drift
+            state = v / ".hsm"
+            state.mkdir(exist_ok=True)
+            (state / "ingest.json").write_text(
+                json.dumps({"content_hash": _vault_content_hash(v), "collection": name,
+                            "at": date.today().isoformat()}), encoding="utf-8")
+        except OSError:
+            pass
     return {"ok": emb.returncode == 0, "engine": "qmd", "collection": name,
             "embed_tail": (emb.stdout or emb.stderr or "").strip().splitlines()[-1:]}
 

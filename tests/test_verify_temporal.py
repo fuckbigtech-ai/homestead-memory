@@ -102,3 +102,91 @@ def test_temporal_legacy_fbt_dir_read(tmp_path):
     (tmp_path / ".hsm" / "temporal.sqlite").rename(legacy / "temporal.sqlite")
     (tmp_path / ".hsm").rmdir()
     assert temporal.history("proj", vault=tmp_path)        # still readable via fallback
+
+
+# ---------------------------------------------------------------- RotBench v1.1 families
+from homestead_memory.core import index as _index   # noqa: E402
+
+
+def _checks(rep) -> set:
+    return {f.check for f in rep["findings"]}
+
+
+def _distilled(stem_body: str) -> str:
+    return f"---\nname: user\ntype: distilled\nupdated: 2026-07-01\n---\n\n# User\n\n{stem_body}\n"
+
+
+def test_v11_duplicate_value(tmp_path):
+    _write(tmp_path, "a.md", OTHER)   # a resolving, fresh source
+    _write(tmp_path, "user.md", _distilled(
+        "- crm: Salesforce (source: a.md)\n- crm: HubSpot (source: a.md)\n\n"
+        "## Changelog\n- 2026-07-01: recorded crm: \"HubSpot\" (source: a.md)\n"))
+    rep = verify.verify_vault(tmp_path)
+    assert "duplicate_value" in _checks(rep) and not rep["ok"]
+
+
+def test_v11_temporal_mismatch(tmp_path):
+    _write(tmp_path, "a.md", OTHER)
+    _write(tmp_path, "user.md", _distilled(
+        "- crm: Salesforce (source: a.md)\n\n## Changelog\n"
+        "- 2026-06-01: recorded crm: \"Salesforce\" (source: a.md)\n"
+        "- 2026-07-01: update crm: \"Salesforce\" -> \"HubSpot\" (source: a.md)\n"))
+    rep = verify.verify_vault(tmp_path)
+    assert "temporal_mismatch" in _checks(rep) and not rep["ok"]
+
+
+def test_v11_citation_source_stale(tmp_path):
+    _write(tmp_path, "old.md",
+           "---\nname: old\nstatus: reference\nupdated: 2026-01-01\n---\nancient evidence\n")
+    _write(tmp_path, "user.md", _distilled(
+        "- crm: HubSpot (source: old.md)\n\n## Changelog\n"
+        "- 2026-07-01: recorded crm: \"HubSpot\" (source: old.md)\n"))
+    rep = verify.verify_vault(tmp_path)
+    assert "citation_source_stale" in _checks(rep)   # WARN (source >90d old)
+
+
+def test_v11_updated_ahead(tmp_path):
+    _write(tmp_path, "n.md",
+           "---\nname: n\nstatus: hot\nupdated: 2026-09-01\n---\n# n\n\n"
+           "## Changelog\n- 2026-07-01: recorded.\n")
+    rep = verify.verify_vault(tmp_path)
+    assert "updated_ahead" in _checks(rep)           # WARN (field bumped past changelog)
+
+
+def test_v11_index_drift(tmp_path, monkeypatch):
+    _write(tmp_path, "n.md", OTHER)
+    hsm = tmp_path / ".hsm"; hsm.mkdir()
+    (hsm / "ingest.json").write_text('{"content_hash": "STALE", "collection": "x"}')
+    monkeypatch.setattr(_index, "_QMD", "/usr/bin/qmd")          # qmd 'available'
+    monkeypatch.setattr(_index, "_collection_exists", lambda name: True)  # avoid not_indexed
+    rep = verify.verify_vault(tmp_path, deep=True)
+    assert "index_drift" in _checks(rep)             # stored hash != current content
+
+
+def test_v11_clean_distilled_still_intact(tmp_path):
+    _write(tmp_path, "a.md", OTHER)
+    _write(tmp_path, "user.md", _distilled(
+        "- crm: HubSpot (source: a.md)\n\n## Changelog\n"
+        "- 2026-07-01: recorded crm: \"HubSpot\" (source: a.md)\n"))
+    rep = verify.verify_vault(tmp_path)
+    assert rep["ok"] and not rep["fails"]            # no new false positives on a clean vault
+
+
+def test_v11_temporal_tie_no_false_positive(tmp_path):
+    _write(tmp_path, "a.md", OTHER)
+    _write(tmp_path, "user.md", _distilled(
+        "- crm: Pipedrive (source: a.md)\n\n## Changelog\n"
+        "- 2026-07-06: update crm: \"HubSpot\" -> \"Pipedrive\" (source: a.md)\n"
+        "- 2026-07-06: update crm: \"Salesforce\" -> \"HubSpot\" (source: a.md)\n"))
+    rep = verify.verify_vault(tmp_path)
+    assert "temporal_mismatch" not in _checks(rep)   # current value is one of the same-day values
+
+
+def test_v11_multi_source_bullet_value(tmp_path):
+    _write(tmp_path, "a.md", OTHER)
+    _write(tmp_path, "b.md", OTHER)
+    _write(tmp_path, "user.md", _distilled(
+        "- crm: HubSpot (source: a.md) (source: b.md)\n\n## Changelog\n"
+        "- 2026-07-01: recorded crm: \"HubSpot\" (source: a.md)\n"))
+    rep = verify.verify_vault(tmp_path)
+    assert "temporal_mismatch" not in _checks(rep) and rep["ok"]   # value parsed as 'HubSpot'

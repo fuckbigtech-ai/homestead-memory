@@ -17,7 +17,9 @@ note is *unclean* if it has any FAIL-level finding, and `warn_penalty =
 min(15, round(100 × warns/total × 0.3))`. A store with ANY fail is stamped
 **ROT DETECTED** regardless of score — one contradicting note is still rot.
 
-## Check families (v1)
+## Check families
+
+**v1:**
 
 | family | level | what it catches |
 |---|---|---|
@@ -31,6 +33,16 @@ min(15, round(100 × warns/total × 0.3))`. A store with ANY fail is stamped
 | deep: `fallback_resilience` | FAIL | retrieval dies when the index is down |
 | deep: `fixture_miss` | FAIL | a user-pinned "this must stay findable" query stopped resolving |
 | deep: `not_indexed` | WARN | index freshness |
+
+**v1.1** — deeper auditable-extraction + tamper families:
+
+| family | level | what it catches |
+|---|---|---|
+| `duplicate_value` | FAIL | the same field recorded twice with **conflicting** values (a silent same-source contradiction) |
+| `temporal_mismatch` | FAIL | a current value that contradicts its own changelog's **latest-by-date** assertion (one was edited, not the other) |
+| `updated_ahead` | WARN | `updated:` bumped >30d **ahead** of the changelog — a tampered freshness field (`stale_body` catches the reverse) |
+| `citation_source_stale` | WARN | a citation resolves but its **source note** is >90d old — the evidence itself has decayed |
+| deep: `index_drift` | WARN | the store changed since the last ingest — the ANN index may ghost-match **stale embeddings** against edited content |
 
 Reference implementation: `hsm verify [--deep]` (this repo, MIT). Exit code is the
 contract: **nonzero = rot**, so it gates CI/cron like a test suite.
