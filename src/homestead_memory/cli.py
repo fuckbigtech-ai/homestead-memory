@@ -104,13 +104,15 @@ def cmd_history(args) -> int:
 
 def cmd_ask(args) -> int:
     from .core import index
-    res = index.ask(args.question, args.path, k=args.k)
+    res = index.ask(args.question, args.path, k=args.k,
+                    question_type=args.type, token_budget=args.budget)
     if not res["hits"]:
         print("no matches found.", file=sys.stderr)
         return 1
     if res["answer"]:
         print(res["answer"])
-        print(f"\n— sources ({res['engine']}):")
+        print(f"\n— sources ({res['engine']} · {res['question_type']} · "
+              f"~{res['context_tokens']} ctx tokens):")
     else:
         print(f"top passages ({res['engine']}; set HSM_READER to synthesize an answer):\n")
     for h in res["hits"]:
@@ -177,6 +179,11 @@ def build_parser() -> argparse.ArgumentParser:
     pa.add_argument("path", nargs="?", default=None,
                     help="vault directory (default: $HSM_VAULT, else cwd)")
     pa.add_argument("-k", type=int, default=5, help="number of passages to retrieve")
+    pa.add_argument("--type", dest="type", default=None,
+                    choices=["temporal-reasoning", "knowledge-update", "multi-session", "default"],
+                    help="question type (default: auto-classified by the heuristic router)")
+    pa.add_argument("--budget", dest="budget", type=int, default=6000,
+                    help="context token budget (~4 chars/token; default: 6000)")
     pa.set_defaults(func=cmd_ask)
 
     ph = sub.add_parser("history", help="show a note's recorded change history (temporal)")

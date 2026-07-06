@@ -106,9 +106,19 @@ def _make_handler(vault, token: str | None, allowed_hosts: set[str]):
                 query = b.get("query", "")
                 if not query:
                     return self._send(400, {"error": "query required"})
-                res = index.ask(query, vault, k=int(b.get("k", 5)))
+                try:
+                    k = int(b.get("k", 5))
+                    budget = int(b.get("budget", 6000))
+                except (TypeError, ValueError):
+                    return self._send(400, {"error": "k and budget must be integers"})
+                qt = b.get("type")
+                res = index.ask(query, vault, k=k,
+                                question_type=str(qt) if qt is not None else None,
+                                token_budget=budget)
                 self._send(200, {"query": query, "answer": res["answer"],
                                  "engine": res["engine"],
+                                 "question_type": res["question_type"],
+                                 "context_tokens": res["context_tokens"],
                                  "hits": [{"title": h["title"], "rel": h["rel"],
                                            "score": h["score"]} for h in res["hits"]]})
             elif u.path == "/ingest":
