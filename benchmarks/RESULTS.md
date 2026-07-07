@@ -151,3 +151,32 @@ this was the campaign's third cloud-dependency contamination (ccr timeout, qmd i
 collision, provider 429). Re-measure later with backoff + local extraction model —
 non-blocking for launch (distill is a product feature for coherent personal vaults;
 its live E2E is verified — see the demo).
+
+## n=100 spot-check after the WS-A core work (2026-07-06)
+
+Config: shuffled n=100 of the full `_s` distractor set (seed 42), mode A, `--chunk turns
+--v4pp`, reader `glm-5.2:cloud`, judge `deepseek-v4-pro:cloud`. **Valid run: 0 empty
+predictions** (the 429 check the distill run failed).
+
+| metric | value |
+|---|---|
+| QA accuracy | 40.0% |
+| retrieval recall@k | 88.0% |
+| context tokens / q | ~5.7k |
+| RotBench | 99.9 / 100 |
+
+Honest read: **recall is elite (88%, above the full-500's 85%)** — retrieval is not the
+bottleneck. QA (40%) is *below* the full-500 official number (52.8%); this run does NOT
+beat it. Two honest reasons: (1) a shuffled n=100 is a small, high-variance sample that
+happened to skew toward multi-session "how many" questions; (2) **51 of 100 predictions
+were "not enough information"** — the abstention prompt fires hard. Some are correct
+(LongMemEval includes genuine abstention questions), but the rate says the reader is
+over-cautious on multi-session counting, leaving QA on the table. *Retrieval elite,
+reader-calibration-limited* is the fair characterization.
+
+Decision: **published numbers stay at the canonical full-500 (85% / 52.8% / ~5.2k / 99.4).**
+We do not swap in a lower, noisier n=100 QA, nor cherry-pick the higher n=100 recall.
+
+Future work (non-blocking): (a) abstention calibration — it is measurably costing QA;
+(b) route the harness through `core.ask()` for a direct end-to-end number (this run measured
+the harness pipeline, which `core.ask()` now mirrors after WS-A, but does not exercise it).
