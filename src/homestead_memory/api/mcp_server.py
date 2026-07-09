@@ -76,7 +76,9 @@ TOOLS = [
      "description": "MUTATES local state unless dry=true: run the write-time distilled "
                     "layer (extract cited entity facts from new/changed notes).",
      "inputSchema": {"type": "object", "additionalProperties": False, "required": [],
-                     "properties": {"dry": {"type": "boolean", "default": False}}}},
+                     "properties": {"dry": {"type": "boolean", "default": False},
+                                    "agent": {"type": "string",
+                                              "description": "writer identity for provenance"}}}},
 ]
 
 
@@ -172,7 +174,9 @@ def call_tool(name: str, args: dict, vault: Path) -> dict:
         return _text_result(f"index: {ing}\ntemporal: {t['entries']} dated changes "
                             f"across {t['notes_with_history']} notes")
     if name == "memory_distill":
-        rep = distill_mod.distill(vault, dry=bool(args.get("dry", False)))
+        agent = args.get("agent")
+        rep = distill_mod.distill(vault, dry=bool(args.get("dry", False)),
+                                  agent=str(agent) if agent is not None else None)
         return _text_result(json.dumps(rep, indent=1))
     raise KeyError(name)
 

@@ -30,6 +30,7 @@ import urllib.request
 from datetime import date
 from pathlib import Path
 
+from . import provenance
 from . import vault as vaultlib
 
 DISTILLED_DIR = "distilled"
@@ -78,6 +79,21 @@ def _normalize(text: str) -> str:
 
 def _hash(text: str) -> str:
     return hashlib.sha1(text.encode("utf-8", "replace")).hexdigest()
+
+
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+
+
+def _body_text(text: str) -> str:
+    # Hash the body below the frontmatter, but ONLY strip a real YAML frontmatter
+    # block. A note that opens with a Markdown horizontal rule (`---`) and no YAML
+    # must be hashed whole, not mis-sliced at the first two rules.
+    fm = vaultlib.parse_frontmatter(text or "")
+    if not (fm and fm.get("fields")):
+        return text or ""
+    m = re.match(r"\A---\s*\n.*?\n---\s*\n", text or "", re.DOTALL)
+    return text[m.end():] if m else (text or "")
 
 
 def _sidecar(vault: Path, name: str) -> Path:
@@ -185,13 +201,18 @@ def _existing_changelog(text: str) -> list[str]:
 
 # ------------------------------------------------------------------- the pass
 def distill(vault: Path | str | None = None, model: str | None = None,
-            dry: bool = False, extract_fn=None) -> dict:
+            dry: bool = False, extract_fn=None, agent: str | None = None,
+            session: str | None = None) -> dict:
     """Run the incremental distill pass. extract_fn(rel, body) -> list[fact-dicts]
     is injectable for tests; default = local ollama at temperature 0 (windowed)."""
     import os
     v = vaultlib._resolve(vault)
     model = model or os.environ.get("HSM_DISTILL_MODEL", "llama3.1:latest")
     extract = extract_fn or (lambda rel, body: _ollama_extract(model, rel, body))
+    writer_agent = provenance.resolve_agent(agent)
+    writer_session = provenance.resolve_session(session)
+    writer_ts = provenance.now_ts()
+    prov_token = provenance.format_token(writer_agent, writer_session, writer_ts)
 
     state_p, cite_p = _sidecar(v, STATE_FILE), _sidecar(v, CITATIONS_FILE)
     state, citations = _load_json(state_p), _load_json(cite_p)
@@ -211,6 +232,7 @@ def distill(vault: Path | str | None = None, model: str | None = None,
             rep["skipped_unsafe_path"] += 1
             continue
         text = p.read_text(errors="replace")
+        source_sha256 = _sha256(_body_text(text))
         fm = vaultlib.parse_frontmatter(text)
         if fm and fm["fields"].get("type") == "distilled":
             continue
@@ -271,15 +293,20 @@ def distill(vault: Path | str | None = None, model: str | None = None,
                         # (keeps .hsm/citations.json rebuildable from a full re-distill)
                         citations.setdefault(f"{slug}::{fld}",
                                              {"source": rp, "quote": str(f.get("quote", "")),
-                                              "value": val, "date": today})
+                                              "value": val, "date": today,
+                                              "agent": writer_agent, "session": writer_session,
+                                              "ts": writer_ts, "sha256": source_sha256})
                         continue
-                    line = (f'- {today}: update {fld}: "{cur[0]}" -> "{val}" (source: {rp})'
+                    line = ((f'- {today}: update {fld}: "{cur[0]}" -> "{val}" (source: {rp})')
                             if cur else
-                            f'- {today}: recorded {fld}: "{val}" (source: {rp})')
+                            (f'- {today}: recorded {fld}: "{val}" (source: {rp})'))
+                    line = f"{line} {prov_token}"
                     # ALWAYS update the bullet + citation; dedupe governs the LOG only
                     fields[fld] = (val, rp)
                     citations[f"{slug}::{fld}"] = {"source": rp, "quote": str(f.get("quote", "")),
-                                                   "value": val, "date": today}
+                                                   "value": val, "date": today,
+                                                   "agent": writer_agent, "session": writer_session,
+                                                   "ts": writer_ts, "sha256": source_sha256}
                     touched = True
                     if line not in seen_lines:
                         added.append(line)

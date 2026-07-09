@@ -98,7 +98,9 @@ def cmd_history(args) -> int:
     for r in rows:
         transition = (f"  [{r['field']}: {r['old_val']} → {r['new_val']}]"
                       if r["field"] else "")
-        print(f"  {r['valid_date']}{transition}")
+        prov = (f"  [agent={r['agent']} session={r['session']} ts={r['ts']}]"
+                if r.get("agent") or r.get("session") or r.get("ts") else "")
+        print(f"  {r['valid_date']}{transition}{prov}")
         print(f"     {r['text']}")
     return 0
 
@@ -173,7 +175,7 @@ def cmd_verify(args) -> int:
 
 def cmd_distill(args) -> int:
     from .core import distill
-    rep = distill.distill(args.path, model=args.model, dry=args.dry)
+    rep = distill.distill(args.path, model=args.model, dry=args.dry, agent=args.agent)
     print(f"distill{' (dry)' if rep['dry'] else ''}: scanned {rep['scanned']} notes, "
           f"{rep['changed']} new/changed")
     print(f"  facts kept {rep['facts']} · dropped by cite-or-drop {rep['dropped']} · "
@@ -254,6 +256,8 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("--model", default=None,
                     help="extraction model (default: $HSM_DISTILL_MODEL or llama3.1:latest via ollama)")
     pd.add_argument("--dry", action="store_true", help="report without writing")
+    pd.add_argument("--agent", default=None,
+                    help="writer identity stamped on distilled changelog provenance")
     pd.set_defaults(func=cmd_distill)
 
     pt = sub.add_parser("tune",
