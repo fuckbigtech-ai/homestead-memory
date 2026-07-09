@@ -1,0 +1,14 @@
+[
+  {
+    "query": "What medication allergy must always be surfaced before prescribing antibiotics?",
+    "expect": "medical/penicillin-allergy.md"
+  },
+  {
+    "query": "Which vendor owns the current CRM migration?",
+    "expect": "projects/crm-migration"
+  },
+  {
+    "query": "Where is the active company bank account documented?",
+    "expect": "finance/banking.md"
+  }
+]
