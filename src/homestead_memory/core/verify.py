@@ -45,6 +45,12 @@ ROTBENCH_VERSION = "v1.1"
 _DISTILL_BULLET_RE = re.compile(r"-\s*([A-Za-z0-9_]+):\s*(.*?)\s*\(source:")
 _CL_UPDATE_RE = re.compile(r'update\s+([A-Za-z0-9_]+):\s*"([^"]*)"\s*->\s*"([^"]*)"')
 _CL_RECORD_RE = re.compile(r'recorded\s+([A-Za-z0-9_]+):\s*"([^"]*)"')
+_CL_RESOLVE_KEEP_RE = re.compile(
+    r'resolved\s+([A-Za-z0-9_]+):\s*kept\s+"([^"]*)"\s+over\s+.*\(source:\s*resolve\)'
+)
+_CL_RESOLVE_MERGE_RE = re.compile(
+    r'resolved\s+([A-Za-z0-9_]+):\s*merged\s+(.+?)\s+\(source:\s*resolve\)'
+)
 
 
 def _norm(v: str) -> str:
@@ -290,6 +296,12 @@ def _check_distilled(txt: str, rp: str, vroot: Path) -> list[Finding]:
             _assert(fld, new, ld)
         for fld, val in _CL_RECORD_RE.findall(rest):
             _assert(fld, val, ld)
+        for fld, val in _CL_RESOLVE_KEEP_RE.findall(rest):
+            _assert(fld, val, ld)
+        for fld, values in _CL_RESOLVE_MERGE_RE.findall(rest):
+            merged = " | ".join(sorted(re.findall(r'"([^"]*)"', values), key=lambda x: x.casefold()))
+            if merged:
+                _assert(fld, merged, ld)
     for fld, cur in current.items():
         a = asserted.get(fld)
         if a is not None and cur not in a[1]:

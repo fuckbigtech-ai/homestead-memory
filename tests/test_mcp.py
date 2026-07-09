@@ -74,7 +74,7 @@ def test_tools_list_schemas(tmp_path):
     tools = {t["name"]: t for t in r["result"]["tools"]}
     assert set(tools) == {"memory_ask", "memory_search", "memory_verify",
                           "memory_history", "memory_ingest", "memory_distill",
-                          "memory_remember"}
+                          "memory_remember", "memory_resolve"}
     for t in tools.values():
         assert t["inputSchema"]["type"] == "object"
         assert t["inputSchema"]["additionalProperties"] is False
