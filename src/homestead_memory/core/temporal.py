@@ -22,6 +22,7 @@ import re
 import sqlite3
 from pathlib import Path
 
+from . import provenance
 from . import vault as vaultlib
 
 _CHANGELOG_HEADER_RE = re.compile(r"^#{1,6}\s*changelog\s*$", re.I | re.M)
@@ -47,6 +48,7 @@ def parse_changelog(text: str) -> list[dict]:
     out = []
     for em in _ENTRY_RE.finditer(section):
         date, body = em.group(1), em.group(2).strip()
+        prov = provenance.parse_token(body) or {}
         field = old = new = None
         qm = _QUOTED_TRANSITION_RE.search(body)     # distill-canonical form first
         if qm:
@@ -55,7 +57,9 @@ def parse_changelog(text: str) -> list[dict]:
             tm = _TRANSITION_RE.search(body)
             if tm:
                 field, old, new = tm.group(1).lower(), tm.group(2), tm.group(3)
-        out.append({"date": date, "field": field, "old": old, "new": new, "text": body})
+        out.append({"date": date, "field": field, "old": old, "new": new, "text": body,
+                    "agent": prov.get("agent"), "session": prov.get("session"),
+                    "ts": prov.get("ts")})
     return out
 
 
@@ -81,7 +85,7 @@ def build(vault: Path | str | None = None) -> dict:
     con.execute("DROP TABLE IF EXISTS changes")
     con.execute(
         "CREATE TABLE changes (note TEXT, valid_date TEXT, field TEXT, "
-        "old_val TEXT, new_val TEXT, text TEXT)"
+        "old_val TEXT, new_val TEXT, text TEXT, agent TEXT, session TEXT, ts TEXT)"
     )
     con.execute("CREATE INDEX idx_note ON changes(note)")
     con.execute("CREATE INDEX idx_date ON changes(valid_date)")
@@ -92,8 +96,9 @@ def build(vault: Path | str | None = None) -> dict:
             n_notes += 1
         for e in entries:
             con.execute(
-                "INSERT INTO changes VALUES (?,?,?,?,?,?)",
-                (rel.as_posix(), e["date"], e["field"], e["old"], e["new"], e["text"]),
+                "INSERT INTO changes VALUES (?,?,?,?,?,?,?,?,?)",
+                (rel.as_posix(), e["date"], e["field"], e["old"], e["new"], e["text"],
+                 e["agent"], e["session"], e["ts"]),
             )
             n_entries += 1
     con.commit()
@@ -110,6 +115,20 @@ def _connect(vault: Path) -> sqlite3.Connection | None:
     return con
 
 
+_PROV_COLS = ("agent", "session", "ts")
+
+
+def _cols(con: sqlite3.Connection) -> str:
+    """Column list for history/as_of. Legacy 6-column sidecars (built before
+    write-provenance) lack agent/session/ts; pad them with NULL so a stale DB
+    queried before the next `hsm ingest` rebuild doesn't crash."""
+    have = {r["name"] for r in con.execute("PRAGMA table_info(changes)")}
+    if set(_PROV_COLS) <= have:
+        return "valid_date, field, old_val, new_val, text, agent, session, ts"
+    return ("valid_date, field, old_val, new_val, text, "
+            "NULL AS agent, NULL AS session, NULL AS ts")
+
+
 def history(note: str, vault: Path | str | None = None) -> list[dict]:
     """All recorded changes for a note (stem or relpath), newest first."""
     v = vaultlib._resolve(vault)
@@ -118,7 +137,7 @@ def history(note: str, vault: Path | str | None = None) -> list[dict]:
         return []
     like = note if note.endswith(".md") else f"%{note}%"
     rows = con.execute(
-        "SELECT valid_date, field, old_val, new_val, text FROM changes "
+        f"SELECT {_cols(con)} FROM changes "
         "WHERE note = ? OR note LIKE ? ORDER BY valid_date DESC",
         (note, like),
     ).fetchall()
@@ -134,7 +153,7 @@ def as_of(note: str, date: str, field: str | None = None,
     con = _connect(v)
     if con is None:
         return []
-    q = ("SELECT valid_date, field, old_val, new_val, text FROM changes "
+    q = (f"SELECT {_cols(con)} FROM changes "
          "WHERE (note = ? OR note LIKE ?) AND valid_date <= ?")
     args = [note, f"%{note}%", date]
     if field:

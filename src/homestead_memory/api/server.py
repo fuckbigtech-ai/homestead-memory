@@ -9,6 +9,7 @@ the verification gate, and change history over HTTP.
     GET  /health                      -> {ok, vault, qmd}   (no auth)
     POST /ask     {"query","k"}       -> {answer, hits, engine}
     POST /ingest                      -> index + temporal build report
+    POST /distill {"dry","agent"}     -> distilled layer write pass report
     GET  /verify                      -> memory-integrity report (RotBench)
     GET  /history?note=X[&as_of=Y]    -> a note's recorded change history
 
@@ -27,6 +28,7 @@ import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
+from ..core import distill as distill_mod
 from ..core import index, temporal, verify
 
 _LOOPBACK = {"127.0.0.1", "localhost", "::1", "[::1]"}
@@ -133,6 +135,11 @@ def _make_handler(vault, token: str | None, allowed_hosts: set[str]):
                 ing = index.ingest(vault)
                 t = temporal.build(vault)
                 self._send(200, {"index": ing, "temporal": t})
+            elif u.path == "/distill":
+                agent = b.get("agent")
+                rep = distill_mod.distill(vault, dry=bool(b.get("dry", False)),
+                                          agent=str(agent) if agent is not None else None)
+                self._send(200, {"distill": rep})
             else:
                 self._send(404, {"error": "not found"})
 
@@ -164,7 +171,7 @@ def serve(vault, host: str = "127.0.0.1", port: int = 8848,
         print(f"  auth: send  Authorization: Bearer {token}")
     else:
         print("  auth: DISABLED (--no-auth) — anything local can read/write this memory")
-    print("  GET /health · POST /ask · POST /ingest · GET /verify · GET /history?note=")
+    print("  GET /health · POST /ask · POST /ingest · POST /distill · GET /verify · GET /history?note=")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
