@@ -187,6 +187,14 @@ def cmd_distill(args) -> int:
     return 0
 
 
+def cmd_remember(args) -> int:
+    from .core import remember
+    res = remember.remember(args.entity, args.field, args.value, vault=args.path,
+                            source=args.source, agent=args.agent)
+    print(f"{res['action']}: {res['note']}")
+    return 0
+
+
 def cmd_mcp(args) -> int:
     from .api import mcp_server
     return mcp_server.serve(args.path)
@@ -259,6 +267,19 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("--agent", default=None,
                     help="writer identity stamped on distilled changelog provenance")
     pd.set_defaults(func=cmd_distill)
+
+    pr = sub.add_parser("remember",
+                        help="directly write one provenance-stamped distilled fact")
+    pr.add_argument("entity")
+    pr.add_argument("field")
+    pr.add_argument("value")
+    pr.add_argument("path", nargs="?", default=None,
+                    help="vault directory (default: $HSM_VAULT, else cwd)")
+    pr.add_argument("--source", default=None,
+                    help="source label for the distilled citation (default: remember)")
+    pr.add_argument("--agent", default=None,
+                    help="writer identity stamped on distilled changelog provenance")
+    pr.set_defaults(func=cmd_remember)
 
     pt = sub.add_parser("tune",
                         help="grid-search retrieval on your fixtures → .hsm/tuning.json "

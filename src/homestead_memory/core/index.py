@@ -27,6 +27,7 @@ from datetime import date
 from pathlib import Path
 
 from . import chunking
+from . import store
 from . import telemetry
 from . import tuning
 from . import vault as vaultlib
@@ -95,10 +96,10 @@ def ingest(vault: Path | str | None = None) -> dict:
     if emb.returncode == 0:                # record the content hash ONLY on a clean embed, so
         try:                              # a failed/stale index doesn't suppress index_drift
             state = v / ".hsm"
-            state.mkdir(exist_ok=True)
-            (state / "ingest.json").write_text(
+            store.atomic_write(
+                state / "ingest.json",
                 json.dumps({"content_hash": _vault_content_hash(v), "collection": name,
-                            "at": date.today().isoformat()}), encoding="utf-8")
+                            "at": date.today().isoformat()}))
         except OSError:
             pass
     return {"ok": emb.returncode == 0, "engine": "qmd", "collection": name,

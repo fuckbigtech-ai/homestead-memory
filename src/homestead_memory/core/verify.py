@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import re
 import tempfile
+import hashlib
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 from pathlib import Path
@@ -166,6 +167,31 @@ def deep_checks(vault: Path | str | None = None) -> list[Finding]:
 _SOURCE_CITE_RE = re.compile(r"\(source:\s*([^)]+)\)")
 
 
+def _sha256(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()
+
+
+def _direct_citation_ok(vroot: Path, rp: str, field: str | None, value: str | None, source: str) -> bool:
+    """Validate synthetic direct-write sources through the citations sidecar."""
+    if not field or value is None:
+        return False
+    if (Path(source).is_absolute() or "/" in source or "\\" in source
+            or source.casefold().endswith(".md")):
+        return False
+    try:
+        citations = json.loads((vroot / ".hsm" / "citations.json").read_text())
+    except Exception:
+        return False
+    key = f"{Path(rp).stem}::{field.casefold()}"
+    c = citations.get(key)
+    return bool(
+        isinstance(c, dict)
+        and c.get("source") == source
+        and _norm(str(c.get("value", ""))) == _norm(value)
+        and c.get("sha256") == _sha256(value)
+    )
+
+
 def _check_distilled(txt: str, rp: str, vroot: Path) -> list[Finding]:
     """distill_integrity (v1.1) — the auditable-extraction families:
       - uncited_claim         (FAIL) body bullet with no (source: …)
@@ -193,6 +219,7 @@ def _check_distilled(txt: str, rp: str, vroot: Path) -> list[Finding]:
             changelog_lines.append(s)
             continue
 
+        bullet_field, bullet_value = None, None
         cites = _SOURCE_CITE_RE.findall(s)
         if not cites:
             out.append(Finding("fail", "uncited_claim", rp,
@@ -200,6 +227,7 @@ def _check_distilled(txt: str, rp: str, vroot: Path) -> list[Finding]:
         bm = _DISTILL_BULLET_RE.match(s)
         if bm:
             fld, val = bm.group(1).casefold(), _norm(bm.group(2))
+            bullet_field, bullet_value = fld, bm.group(2).strip()
             if fld in current and current[fld] != val:
                 out.append(Finding("fail", "duplicate_value", rp,
                                    f"field '{fld}' recorded twice with conflicting values: "
@@ -210,6 +238,8 @@ def _check_distilled(txt: str, rp: str, vroot: Path) -> list[Finding]:
             # citation must be a RELATIVE .md path that resolves INSIDE the vault —
             # absolute paths and ../ traversal are rot even if the file exists.
             if Path(c).is_absolute() or not c.endswith(".md"):
+                if _direct_citation_ok(vroot, rp, bullet_field, bullet_value, c):
+                    continue
                 out.append(Finding("fail", "dangling_citation", rp,
                                    f"(source: {c}) is not a relative .md path"))
                 continue
