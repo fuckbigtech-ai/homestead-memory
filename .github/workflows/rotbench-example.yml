@@ -1,0 +1,18 @@
+# Example consumer workflow. The org/repo path below is illustrative until published.
+name: RotBench
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify-memory:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: fuckbigtech/homestead-memory@v0
+        with:
+          vault: "."
+          deep: "true"
+          min-score: "85"
