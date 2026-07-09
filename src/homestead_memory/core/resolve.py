@@ -228,6 +228,8 @@ def resolve(entity, vault=None, field=None, strategy="latest", agent=None, sessi
         note_entity = _entity_name(text, entity_name)
         store.atomic_write(cite_p, json.dumps(citations, indent=1, sort_keys=True))
         store.atomic_write(target, distill._render_distilled(slug, note_entity, fields, changelog))
+        from . import temporal
+        temporal.update_note(rel, v)
         result["note"] = rel.as_posix()
         result["resolved"] = resolved_fields
         return result
