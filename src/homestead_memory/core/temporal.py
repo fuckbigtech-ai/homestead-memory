@@ -37,6 +37,15 @@ _TRANSITION_RE = re.compile(
 #   update <field>: "<old>" -> "<new>"
 _QUOTED_TRANSITION_RE = re.compile(
     r'^update\s+([a-z0-9_-]+):\s*"(.*?)"\s*(?:->|→)\s*"(.*?)"', re.I)
+_RECORDED_RE = re.compile(r'^recorded\s+([a-z0-9_-]+):\s*"(.*?)"', re.I)
+_RESOLVED_KEEP_RE = re.compile(r'^resolved\s+([a-z0-9_-]+):\s*kept\s+"(.*?)"', re.I)
+_RESOLVED_MERGE_RE = re.compile(r'^resolved\s+([a-z0-9_-]+):\s*merged\s+(.*?)(?:\s+\(source:|$)', re.I)
+_CHANGE_COLUMNS = ("note", "valid_date", "field", "old_val", "new_val", "text",
+                   "agent", "session", "ts")
+_CHANGE_INSERT = (
+    "INSERT INTO changes (note, valid_date, field, old_val, new_val, text, "
+    "agent, session, ts) VALUES (?,?,?,?,?,?,?,?,?)"
+)
 
 
 def parse_changelog(text: str) -> list[dict]:
@@ -57,6 +66,21 @@ def parse_changelog(text: str) -> list[dict]:
             tm = _TRANSITION_RE.search(body)
             if tm:
                 field, old, new = tm.group(1).lower(), tm.group(2), tm.group(3)
+            else:
+                rm = _RECORDED_RE.search(body)
+                if rm:
+                    field, new = rm.group(1).lower(), rm.group(2)
+                else:
+                    rkm = _RESOLVED_KEEP_RE.search(body)
+                    if rkm:
+                        field, new = rkm.group(1).lower(), rkm.group(2)
+                    else:
+                        rmm = _RESOLVED_MERGE_RE.search(body)
+                        if rmm:
+                            values = re.findall(r'"([^"]*)"', rmm.group(2))
+                            if values:
+                                field = rmm.group(1).lower()
+                                new = " | ".join(sorted(values, key=lambda x: x.casefold()))
         out.append({"date": date, "field": field, "old": old, "new": new, "text": body,
                     "agent": prov.get("agent"), "session": prov.get("session"),
                     "ts": prov.get("ts")})
@@ -76,6 +100,27 @@ def _existing_db_path(vault: Path) -> Path:
     return legacy if legacy.exists() else new
 
 
+def _ensure_schema(con: sqlite3.Connection) -> None:
+    con.execute(
+        "CREATE TABLE IF NOT EXISTS changes (note TEXT, valid_date TEXT, field TEXT, "
+        "old_val TEXT, new_val TEXT, text TEXT, agent TEXT, session TEXT, ts TEXT)"
+    )
+    have = {r[1] for r in con.execute("PRAGMA table_info(changes)")}
+    for col in _CHANGE_COLUMNS:
+        if col not in have:
+            con.execute(f"ALTER TABLE changes ADD COLUMN {col} TEXT")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_note ON changes(note)")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_date ON changes(valid_date)")
+
+
+def _insert_entry(con: sqlite3.Connection, rel: str, e: dict) -> None:
+    con.execute(
+        _CHANGE_INSERT,
+        (rel, e["date"], e["field"], e["old"], e["new"], e["text"],
+         e["agent"], e["session"], e["ts"]),
+    )
+
+
 def build(vault: Path | str | None = None) -> dict:
     """(Re)build the temporal sidecar from every note's changelog. Returns counts."""
     v = vaultlib._resolve(vault)
@@ -83,27 +128,75 @@ def build(vault: Path | str | None = None) -> dict:
     dbp.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(dbp)
     con.execute("DROP TABLE IF EXISTS changes")
-    con.execute(
-        "CREATE TABLE changes (note TEXT, valid_date TEXT, field TEXT, "
-        "old_val TEXT, new_val TEXT, text TEXT, agent TEXT, session TEXT, ts TEXT)"
-    )
-    con.execute("CREATE INDEX idx_note ON changes(note)")
-    con.execute("CREATE INDEX idx_date ON changes(valid_date)")
+    _ensure_schema(con)
     n_notes = n_entries = 0
     for p, rel in vaultlib.iter_notes(v):
         entries = parse_changelog(p.read_text(errors="replace"))
         if entries:
             n_notes += 1
         for e in entries:
-            con.execute(
-                "INSERT INTO changes VALUES (?,?,?,?,?,?,?,?,?)",
-                (rel.as_posix(), e["date"], e["field"], e["old"], e["new"], e["text"],
-                 e["agent"], e["session"], e["ts"]),
-            )
+            _insert_entry(con, rel.as_posix(), e)
             n_entries += 1
     con.commit()
     con.close()
     return {"notes_with_history": n_notes, "entries": n_entries, "db": str(dbp)}
+
+
+def _resolve_note(vault: Path, note: str | Path) -> tuple[Path | None, str]:
+    raw = Path(str(note))
+    if raw.suffix.lower() == ".md":
+        rel = raw
+        if raw.is_absolute():
+            try:
+                rel = raw.relative_to(vault)
+            except ValueError:
+                rel = Path(raw.name)
+        return (vault / rel if (vault / rel).exists() else None, rel.as_posix())
+
+    stem = raw.stem or str(note)
+    preferred = Path("distilled") / f"{stem}.md"
+    if (vault / preferred).exists():
+        return vault / preferred, preferred.as_posix()
+    matches = sorted(
+        (p, rel.as_posix())
+        for p, rel in vaultlib.iter_notes(vault)
+        if p.stem == stem or rel.with_suffix("").as_posix() == str(note)
+    )
+    if matches:
+        return matches[0]
+    return None, preferred.as_posix()
+
+
+def update_note(note, vault: Path | str | None = None) -> int:
+    """Refresh one note's rows in the temporal sidecar.
+
+    Creates the current `.hsm/temporal.sqlite` sidecar on fresh vaults. SQLite
+    lock errors are treated as a best-effort miss so callers that already wrote
+    the markdown note are not broken by a derived index refresh.
+    """
+    v = vaultlib._resolve(vault)
+    dbp = db_path(v)
+    dbp.parent.mkdir(parents=True, exist_ok=True)
+    note_p, rel = _resolve_note(v, note)
+    con = None
+    try:
+        con = sqlite3.connect(dbp)
+        with con:
+            _ensure_schema(con)
+            con.execute("DELETE FROM changes WHERE note = ?", (rel,))
+            if note_p is None:
+                return 0
+            entries = parse_changelog(note_p.read_text(errors="replace"))
+            for e in entries:
+                _insert_entry(con, rel, e)
+            return len(entries)
+    except sqlite3.OperationalError as exc:
+        if "locked" in str(exc).lower() or "readonly" in str(exc).lower():
+            return 0
+        raise
+    finally:
+        if con is not None:
+            con.close()
 
 
 def _connect(vault: Path) -> sqlite3.Connection | None:
@@ -138,7 +231,7 @@ def history(note: str, vault: Path | str | None = None) -> list[dict]:
     like = note if note.endswith(".md") else f"%{note}%"
     rows = con.execute(
         f"SELECT {_cols(con)} FROM changes "
-        "WHERE note = ? OR note LIKE ? ORDER BY valid_date DESC",
+        "WHERE note = ? OR note LIKE ? ORDER BY valid_date DESC, ts DESC, rowid DESC",
         (note, like),
     ).fetchall()
     con.close()
@@ -159,7 +252,7 @@ def as_of(note: str, date: str, field: str | None = None,
     if field:
         q += " AND field = ?"
         args.append(field.lower())
-    q += " ORDER BY valid_date DESC"
+    q += " ORDER BY valid_date DESC, ts DESC, rowid DESC"
     rows = con.execute(q, args).fetchall()
     con.close()
     return [dict(r) for r in rows]

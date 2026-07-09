@@ -71,6 +71,8 @@ def remember(entity, field, value, vault=None, source=None, agent=None, session=
         }
         store.atomic_write(cite_p, json.dumps(citations, indent=1, sort_keys=True))
         store.atomic_write(target, distill._render_distilled(slug, entity_name, fields, changelog))
+        from . import temporal
+        temporal.update_note(Path(distill.DISTILLED_DIR) / f"{slug}.md", v)
 
     return {
         "entity": entity,
