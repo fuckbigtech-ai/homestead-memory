@@ -195,6 +195,23 @@ def cmd_remember(args) -> int:
     return 0
 
 
+def cmd_resolve(args) -> int:
+    from .core import resolve as resolve_mod
+    res = resolve_mod.resolve(args.entity, vault=args.path, field=args.field,
+                              strategy=args.strategy, agent=args.agent)
+    if not res["note"]:
+        print("no distilled note found")
+        return 0
+    if not res["resolved"]:
+        print(f"no conflicts: {res['note']}")
+        return 0
+    for item in res["resolved"]:
+        losers = ", ".join(item["losers"]) if item["losers"] else "(none)"
+        print(f"{item['field']}: kept {item['winner']} over {losers} "
+              f"({item['strategy']})")
+    return 0
+
+
 def cmd_mcp(args) -> int:
     from .api import mcp_server
     return mcp_server.serve(args.path)
@@ -280,6 +297,18 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--agent", default=None,
                     help="writer identity stamped on distilled changelog provenance")
     pr.set_defaults(func=cmd_remember)
+
+    prs = sub.add_parser("resolve",
+                         help="resolve duplicate-value conflicts in a distilled note")
+    prs.add_argument("entity")
+    prs.add_argument("path", nargs="?", default=None,
+                     help="vault directory (default: $HSM_VAULT, else cwd)")
+    prs.add_argument("--field", default=None, help="field to resolve")
+    prs.add_argument("--strategy", choices=["latest", "keep-both"], default="latest",
+                     help="resolution policy (default: latest)")
+    prs.add_argument("--agent", default=None,
+                     help="resolver identity stamped on distilled changelog provenance")
+    prs.set_defaults(func=cmd_resolve)
 
     pt = sub.add_parser("tune",
                         help="grid-search retrieval on your fixtures → .hsm/tuning.json "

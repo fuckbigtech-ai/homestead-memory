@@ -82,7 +82,7 @@ client-spawned) · HTTP/SSE transport (that's `hsm serve`).
   write, stdout PROTOCOL-ONLY (diagnostics → stderr). No LSP Content-Length framing.
 - Tool schemas: concrete JSON Schema (`type:object`, `properties`, `required`,
   `additionalProperties:false`), `k` clamped 1–20 (default 5).
-- `tools/list` ignores `cursor`, omits `nextCursor` (6 tools).
+- `tools/list` ignores `cursor`, omits `nextCursor`.
 - Mutating tools say so in their descriptions (`memory_ingest` rebuilds the index;
   `memory_distill` writes distilled notes; `dry` defaults false, explicit).
 - Verify/history/search results are flattened to plain text (never raw dataclasses);

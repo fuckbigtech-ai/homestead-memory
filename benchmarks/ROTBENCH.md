@@ -12,6 +12,11 @@ An independent 2026 evaluation of 8 major memory frameworks found **none** ship
 RotBench is that missing number: **a 0-100 integrity score over a memory store,
 computed by mechanical checks — no LLM judge, no vibes.**
 
+It is also the consistency/trust layer for many agents sharing one memory. The
+more writers a vault has, the more verification matters: duplicate facts, stale
+citations, and unresolved merge conflicts need to be caught mechanically before
+they become context for the next agent.
+
 The honest homestead-memory line today is **85% recall / 52.8% QA / RotBench 99.4**.
 Do not inflate it. RotBench is here to make memory claims falsifiable, not prettier.
 

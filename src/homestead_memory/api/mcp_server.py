@@ -22,6 +22,7 @@ from .. import __version__
 from ..core import distill as distill_mod
 from ..core import index, temporal, verify
 from ..core import remember as remember_mod
+from ..core import resolve as resolve_mod
 from ..core import vault as vaultlib
 
 PROTOCOL_VERSION = "2024-11-05"
@@ -91,6 +92,18 @@ TOOLS = [
                                     "source": {"type": "string"},
                                     "agent": {"type": "string",
                                               "description": "writer identity for provenance"}}}},
+    {"name": "memory_resolve",
+     "description": "MUTATES local state: resolve duplicate-value conflicts in one "
+                    "distilled note, preserving the historical changelog.",
+     "inputSchema": {"type": "object", "additionalProperties": False,
+                     "required": ["entity"],
+                     "properties": {"entity": {"type": "string"},
+                                    "field": {"type": "string"},
+                                    "strategy": {"type": "string",
+                                                 "enum": ["latest", "keep-both"],
+                                                 "description": "default: latest"},
+                                    "agent": {"type": "string",
+                                              "description": "resolver identity for provenance"}}}},
 ]
 
 
@@ -198,6 +211,18 @@ def call_tool(name: str, args: dict, vault: Path) -> dict:
             agent=str(args["agent"]) if args.get("agent") is not None else None,
         )
         return _text_result(json.dumps(rep, indent=1))
+    if name == "memory_resolve":
+        strategy = str(args.get("strategy", "latest"))
+        if strategy not in {"latest", "keep-both"}:
+            return _error_result("strategy must be latest or keep-both")
+        rep = resolve_mod.resolve(
+            str(args["entity"]),
+            vault=vault,
+            field=str(args["field"]) if args.get("field") is not None else None,
+            strategy=strategy,
+            agent=str(args["agent"]) if args.get("agent") is not None else None,
+        )
+        return _text_result(json.dumps(rep, indent=1))
     raise KeyError(name)
 
 
@@ -255,7 +280,7 @@ def handle_message(msg, state: ServerState):
     if not state.initialized:
         return _resp(mid, error=_err(-32002, "server not initialized"))
 
-    if method == "tools/list":           # cursor ignored; nextCursor omitted (6 tools)
+    if method == "tools/list":           # cursor ignored; nextCursor omitted
         return _resp(mid, result={"tools": TOOLS})
     if method == "tools/call":
         params = msg.get("params")

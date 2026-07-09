@@ -11,6 +11,7 @@ the verification gate, and change history over HTTP.
     POST /ingest                      -> index + temporal build report
     POST /distill {"dry","agent"}     -> distilled layer write pass report
     POST /remember {"entity","field","value","source","agent"} -> direct distilled write
+    POST /resolve  {"entity","field","strategy","agent"} -> resolve distilled conflicts
     GET  /verify                      -> memory-integrity report (RotBench)
     GET  /history?note=X[&as_of=Y]    -> a note's recorded change history
 
@@ -32,6 +33,7 @@ from urllib.parse import urlparse, parse_qs
 from ..core import distill as distill_mod
 from ..core import index, temporal, verify
 from ..core import remember as remember_mod
+from ..core import resolve as resolve_mod
 
 _LOOPBACK = {"127.0.0.1", "localhost", "::1", "[::1]"}
 
@@ -155,6 +157,22 @@ def _make_handler(vault, token: str | None, allowed_hosts: set[str]):
                     agent=str(agent) if agent is not None else None,
                 )
                 self._send(200, rep)
+            elif u.path == "/resolve":
+                if not b.get("entity"):
+                    return self._send(400, {"error": "entity required"})
+                strategy = str(b.get("strategy", "latest"))
+                if strategy not in {"latest", "keep-both"}:
+                    return self._send(400, {"error": "strategy must be latest or keep-both"})
+                field = b.get("field")
+                agent = b.get("agent")
+                rep = resolve_mod.resolve(
+                    str(b["entity"]),
+                    vault=vault,
+                    field=str(field) if field is not None else None,
+                    strategy=strategy,
+                    agent=str(agent) if agent is not None else None,
+                )
+                self._send(200, rep)
             else:
                 self._send(404, {"error": "not found"})
 
@@ -186,7 +204,7 @@ def serve(vault, host: str = "127.0.0.1", port: int = 8848,
         print(f"  auth: send  Authorization: Bearer {token}")
     else:
         print("  auth: DISABLED (--no-auth) — anything local can read/write this memory")
-    print("  GET /health · POST /ask · POST /ingest · POST /distill · POST /remember · GET /verify · GET /history?note=")
+    print("  GET /health · POST /ask · POST /ingest · POST /distill · POST /remember · POST /resolve · GET /verify · GET /history?note=")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

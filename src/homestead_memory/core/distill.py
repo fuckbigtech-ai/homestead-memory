@@ -66,7 +66,7 @@ def _san_field(field: str) -> str:
 
 
 def _san_value(value: str) -> str:
-    """One-line, quote-safe value (newlines folded; double-quotes normalized)."""
+    """One-line, quote-safe value (whitespace folded; double-quotes become apostrophes)."""
     v = re.sub(r"\s+", " ", str(value or "")).strip()
     return v.replace('"', "'")
 
