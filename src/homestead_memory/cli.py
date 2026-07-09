@@ -226,6 +226,23 @@ def cmd_resolve(args) -> int:
     return 0
 
 
+def cmd_export(args) -> int:
+    from .core import portability
+    res = portability.export_vault(args.path, out_path=args.out)
+    print(f"exported {res['notes']} notes to {res['bundle']}")
+    print(f"  vault_hash: {res['vault_hash']}")
+    return 0
+
+
+def cmd_import(args) -> int:
+    from .core import portability
+    res = portability.import_memories(args.source, vault=args.path, fmt=args.format,
+                                      agent=args.agent)
+    print(f"imported {res['imported']} memories from {res['format']} "
+          f"({res['skipped']} skipped)")
+    return 0
+
+
 def cmd_mcp(args) -> int:
     from .api import mcp_server
     return mcp_server.serve(args.path)
@@ -332,6 +349,24 @@ def build_parser() -> argparse.ArgumentParser:
     prs.add_argument("--agent", default=None,
                      help="resolver identity stamped on distilled changelog provenance")
     prs.set_defaults(func=cmd_resolve)
+
+    pe = sub.add_parser("export", help="export the vault to a portable .tar.gz bundle")
+    pe.add_argument("path", nargs="?", default=None,
+                    help="vault directory (default: $HSM_VAULT, else cwd)")
+    pe.add_argument("-o", "--out", default=None, metavar="OUT",
+                    help="bundle path (default: <vault-name>-export.tar.gz in cwd)")
+    pe.set_defaults(func=cmd_export)
+
+    pim = sub.add_parser("import", help="import memories from Mem0, Zep, JSON, or Homestead")
+    pim.add_argument("source", help="JSON export, Homestead .tar.gz bundle, or directory")
+    pim.add_argument("path", nargs="?", default=None,
+                     help="vault directory (default: $HSM_VAULT, else cwd)")
+    pim.add_argument("--format", default="auto",
+                     choices=["auto", "mem0", "zep", "homestead", "generic"],
+                     help="source format (default: auto)")
+    pim.add_argument("--agent", default=None,
+                     help="writer identity stamped on imported-note changelog provenance")
+    pim.set_defaults(func=cmd_import)
 
     pt = sub.add_parser("tune",
                         help="grid-search retrieval on your fixtures → .hsm/tuning.json "
