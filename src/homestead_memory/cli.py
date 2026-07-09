@@ -158,7 +158,7 @@ def cmd_verify(args) -> int:
         return 0 if rep["ok"] else 1
     if args.demo:
         return verify.run_demo()
-    rep = verify.verify_vault(args.path, deep=args.deep)
+    rep = verify.verify_vault(args.path, deep=args.deep, expect_pubkey=args.signer)
     if args.json:
         print(json.dumps({
             "ok": rep["ok"],
@@ -171,6 +171,20 @@ def cmd_verify(args) -> int:
         return 0 if rep["ok"] else 1
     verify.print_report(rep, quiet=args.quiet)
     return 0 if rep["ok"] else 1
+
+
+def cmd_sign(args) -> int:
+    from .core import signing
+    try:
+        sig = signing.sign_vault(args.path, key_path=args.key)
+    except RuntimeError as e:
+        print(f"hsm sign: {e}", file=sys.stderr)
+        return 1
+    root = vaultlib._resolve(args.path)
+    print(f"signed vault: {root / signing.SIG_REL}")
+    print(f"  signer: {sig['signer_pubkey']}")
+    print(f"  hash:   {sig['vault_hash']}")
+    return 0
 
 
 def cmd_distill(args) -> int:
@@ -273,7 +287,16 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--quiet", action="store_true", help="print only the score line")
     pv.add_argument("--json", action="store_true",
                     help="emit a machine-readable verification report")
+    pv.add_argument("--signer", default=None, metavar="PUBKEY",
+                    help="require this Ed25519 public key when --deep verifies .hsm/vault.sig")
     pv.set_defaults(func=cmd_verify)
+
+    psign = sub.add_parser("sign", help="sign the vault's canonical markdown state")
+    psign.add_argument("path", nargs="?", default=None,
+                       help="vault directory (default: $HSM_VAULT, else cwd)")
+    psign.add_argument("--key", default=None, metavar="PATH",
+                       help="Ed25519 private seed path (default: $HSM_SIGNING_KEY or ~/.config/...)")
+    psign.set_defaults(func=cmd_sign)
 
     pd = sub.add_parser("distill", help="build/refresh the distilled layer (write-time, cited facts)")
     pd.add_argument("path", nargs="?", default=None,

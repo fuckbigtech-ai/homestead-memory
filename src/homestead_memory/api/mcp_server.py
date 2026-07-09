@@ -23,6 +23,7 @@ from ..core import distill as distill_mod
 from ..core import index, temporal, verify
 from ..core import remember as remember_mod
 from ..core import resolve as resolve_mod
+from ..core import signing as signing_mod
 from ..core import vault as vaultlib
 
 PROTOCOL_VERSION = "2024-11-05"
@@ -60,7 +61,11 @@ TOOLS = [
      "inputSchema": {"type": "object", "additionalProperties": False, "required": [],
                      "properties": {"deep": {"type": "boolean", "default": False,
                                              "description": "also run retrieval-resilience/"
-                                                            "fixtures/freshness checks"}}}},
+                                                            "fixtures/freshness checks"},
+                                    "signer": {"type": "string",
+                                               "description": "trusted Ed25519 public key "
+                                                              "required for signature "
+                                                              "provenance checks"}}}},
     {"name": "memory_history",
      "description": "A note's recorded change history from its Changelog (temporal layer).",
      "inputSchema": {"type": "object", "additionalProperties": False,
@@ -74,6 +79,12 @@ TOOLS = [
      "description": "MUTATES local state: (re)build the search index (qmd) and the "
                     "temporal sidecar for the vault. Can take a while on large vaults.",
      "inputSchema": {"type": "object", "additionalProperties": False, "required": [], "properties": {}}},
+    {"name": "memory_sign",
+     "description": "MUTATES local state: sign the vault's canonical markdown state "
+                    "with a local Ed25519 key. Requires homestead-memory[sign].",
+     "inputSchema": {"type": "object", "additionalProperties": False, "required": [],
+                     "properties": {"key": {"type": "string",
+                                            "description": "private seed path override"}}}},
     {"name": "memory_distill",
      "description": "MUTATES local state unless dry=true: run the write-time distilled "
                     "layer (extract cited entity facts from new/changed notes).",
@@ -174,7 +185,12 @@ def call_tool(name: str, args: dict, vault: Path) -> dict:
     if name == "memory_search":
         return _text_result(_fmt_hits(index.search(str(args["query"]), vault, k=_clamp_k(args))))
     if name == "memory_verify":
-        rep = verify.verify_vault(vault, deep=bool(args.get("deep", False)))
+        signer = args.get("signer")
+        rep = verify.verify_vault(
+            vault,
+            deep=bool(args.get("deep", False)),
+            expect_pubkey=str(signer) if signer is not None else None,
+        )
         stamp = "MEMORY INTACT" if rep["ok"] else "ROT DETECTED"
         lines = [f"{stamp} — {rep['score']}/100 ({rep['n_notes']} notes, "
                  f"{len(rep['fails'])} fail / {len(rep['warns'])} warn)"]
@@ -198,6 +214,14 @@ def call_tool(name: str, args: dict, vault: Path) -> dict:
         t = temporal.build(vault)
         return _text_result(f"index: {ing}\ntemporal: {t['entries']} dated changes "
                             f"across {t['notes_with_history']} notes")
+    if name == "memory_sign":
+        sig = signing_mod.sign_vault(
+            vault,
+            key_path=str(args["key"]) if args.get("key") is not None else None,
+        )
+        return _text_result(f"signed vault: {vault / signing_mod.SIG_REL}\n"
+                            f"  signer: {sig['signer_pubkey']}\n"
+                            f"  hash:   {sig['vault_hash']}")
     if name == "memory_distill":
         agent = args.get("agent")
         rep = distill_mod.distill(vault, dry=bool(args.get("dry", False)),

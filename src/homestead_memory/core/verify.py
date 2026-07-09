@@ -53,6 +53,12 @@ _CL_RESOLVE_MERGE_RE = re.compile(
 )
 
 
+def _signer_prefix(signer: str | None) -> str:
+    if not signer:
+        return "unknown signer"
+    return signer[:16] + "…"
+
+
 def _norm(v: str) -> str:
     return " ".join(v.strip().casefold().split())
 
@@ -110,7 +116,7 @@ def _stale_body(text: str, updated: str | None) -> str | None:
     return None
 
 
-def deep_checks(vault: Path | str | None = None) -> list[Finding]:
+def deep_checks(vault: Path | str | None = None, expect_pubkey: str | None = None) -> list[Finding]:
     """Extra 'full' checks (hsm verify --deep):
       1. fallback resilience — retrieval must survive the index being down (the
          direct-scan must still find a known term). "Your memory works even when
@@ -167,6 +173,30 @@ def deep_checks(vault: Path | str | None = None) -> list[Finding]:
                                    "doesn't ghost-match stale embeddings against edited content"))
         except Exception:
             pass
+
+    sig_path = v / ".hsm" / "vault.sig"
+    if sig_path.exists() or expect_pubkey is not None:
+        from . import signing
+        sig_state = signing.verify_signature(v, expect_pubkey=expect_pubkey)
+        state_name = sig_state.get("state")
+        if state_name in {"invalid", "wrong_signer"}:
+            out.append(Finding("fail", "provenance_integrity", ".hsm/vault.sig",
+                               "signature does not verify / wrong signer"))
+        elif state_name == "valid_stale":
+            out.append(Finding("warn", "provenance_integrity", ".hsm/vault.sig",
+                               "signature is stale: vault changed since signing; "
+                               f"signed by {_signer_prefix(sig_state.get('signer'))}; "
+                               "run `hsm sign` to re-attest"))
+        elif state_name == "valid_current" and expect_pubkey is None:
+            out.append(Finding("warn", "provenance_integrity", ".hsm/vault.sig",
+                               f"signed by {_signer_prefix(sig_state.get('signer'))}; "
+                               "pass --signer to pin the trusted signer"))
+        elif state_name in {"unsigned", "unverifiable"} and expect_pubkey is not None:
+            out.append(Finding("fail", "provenance_integrity", ".hsm/vault.sig",
+                               "signer pinned but vault is unsigned / unverifiable"))
+        elif state_name == "unverifiable":
+            out.append(Finding("warn", "provenance_integrity", ".hsm/vault.sig",
+                               "cannot verify signature: install homestead-memory[sign]"))
     return out
 
 
@@ -311,7 +341,8 @@ def _check_distilled(txt: str, rp: str, vroot: Path) -> list[Finding]:
     return out
 
 
-def verify_vault(vault: Path | str | None = None, deep: bool = False) -> dict:
+def verify_vault(vault: Path | str | None = None, deep: bool = False,
+                 expect_pubkey: str | None = None) -> dict:
     """Run the integrity checks over a vault. Returns a report dict. deep=True adds
     the retrieval-resilience + fixtures + freshness families."""
     targets = vaultlib.valid_link_targets(vault)
@@ -361,7 +392,7 @@ def verify_vault(vault: Path | str | None = None, deep: bool = False) -> dict:
             findings += _check_distilled(txt, rp, vaultlib._resolve(vault))
 
     if deep:
-        findings += deep_checks(vault)
+        findings += deep_checks(vault, expect_pubkey=expect_pubkey)
 
     fails = [x for x in findings if x.level == "fail"]
     warns = [x for x in findings if x.level == "warn"]
