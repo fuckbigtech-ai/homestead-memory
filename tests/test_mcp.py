@@ -74,10 +74,11 @@ def test_tools_list_schemas(tmp_path):
     tools = {t["name"]: t for t in r["result"]["tools"]}
     assert set(tools) == {"memory_ask", "memory_search", "memory_verify",
                           "memory_history", "memory_ingest", "memory_distill",
-                          "memory_remember", "memory_resolve"}
+                          "memory_remember", "memory_resolve", "memory_sign"}
     for t in tools.values():
         assert t["inputSchema"]["type"] == "object"
         assert t["inputSchema"]["additionalProperties"] is False
+    assert "signer" in tools["memory_verify"]["inputSchema"]["properties"]
     assert "nextCursor" not in r["result"]
 
 
@@ -89,6 +90,30 @@ def test_verify_tool_flattens_findings(tmp_path):
     text = r["result"]["content"][0]["text"]
     assert "ROT DETECTED" in text and "self_contradiction" in text
     assert not r["result"].get("isError")
+
+
+def test_verify_tool_passes_signer_pin(tmp_path, monkeypatch):
+    s = _state(tmp_path)
+    seen = {}
+
+    def fake_verify_vault(vault, *, deep=False, expect_pubkey=None):
+        seen["vault"] = vault
+        seen["deep"] = deep
+        seen["expect_pubkey"] = expect_pubkey
+        return {
+            "ok": True,
+            "score": 100,
+            "n_notes": 1,
+            "fails": [],
+            "warns": [],
+        }
+
+    monkeypatch.setattr(mcp.verify, "verify_vault", fake_verify_vault)
+    r = mcp.handle_message(_req("tools/call", name="memory_verify",
+                                arguments={"deep": True, "signer": "abc123"}), s)
+
+    assert "MEMORY INTACT" in r["result"]["content"][0]["text"]
+    assert seen == {"vault": s.vault, "deep": True, "expect_pubkey": "abc123"}
 
 
 def test_history_tool(tmp_path):

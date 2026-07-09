@@ -22,6 +22,7 @@ dependencies = []
 
 [project.optional-dependencies]
 api = ["fastapi>=0.110", "uvicorn>=0.27"]
+sign = ["cryptography>=42"]
 
 [project.scripts]
 hsm = "homestead_memory.cli:main"
