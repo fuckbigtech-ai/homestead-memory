@@ -1,0 +1,441 @@
+openapi: 3.1.0
+info:
+  title: homestead-memory API
+  version: 0.0.1
+  description: local-first verifiable memory API
+servers:
+  - url: http://127.0.0.1:8848
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: API health and retrieval engine availability.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /verify:
+    get:
+      summary: Verify vault integrity
+      parameters:
+        - name: findings
+          in: query
+          required: false
+          schema:
+            oneOf:
+              - type: integer
+                enum: [0, 1]
+              - type: string
+                enum: ["0", "1", "true", "yes"]
+          description: Include the full findings array when set to 1.
+      responses:
+        "200":
+          description: Integrity report summary.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /history:
+    get:
+      summary: Read note history
+      parameters:
+        - name: note
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: as_of
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Return changes on or before this date.
+      responses:
+        "200":
+          description: Note history rows.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HistoryResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /ask:
+    post:
+      summary: Retrieve and answer from memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AskRequest"
+      responses:
+        "200":
+          description: Retrieved answer context and hits.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AskResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /ingest:
+    post:
+      summary: Build retrieval and temporal derived indexes
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        "200":
+          description: Index and temporal build reports.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IngestResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /distill:
+    post:
+      summary: Run the distilled-layer extraction pass
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DistillRequest"
+      responses:
+        "200":
+          description: Distill pass report.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DistillResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /remember:
+    post:
+      summary: Write one distilled fact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RememberRequest"
+      responses:
+        "200":
+          description: Result from remember().
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RememberResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /resolve:
+    post:
+      summary: Resolve distilled-note conflicts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResolveRequest"
+      responses:
+        "200":
+          description: Result from resolve().
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    BadRequest:
+      description: Invalid request.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Host header is not allowed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    Finding:
+      type: object
+      required: [level, check, note, detail]
+      properties:
+        level:
+          type: string
+          enum: [fail, warn]
+        check:
+          type: string
+        note:
+          type: string
+        detail:
+          type: string
+    Health:
+      type: object
+      required: [ok, vault, qmd]
+      properties:
+        ok:
+          type: boolean
+        vault:
+          type: string
+        qmd:
+          type: boolean
+    VerifyResponse:
+      type: object
+      required: [ok, score, notes, fails, warns, stamp, rotbench_version]
+      properties:
+        ok:
+          type: boolean
+        score:
+          type: integer
+        notes:
+          type: integer
+        fails:
+          type: integer
+        warns:
+          type: integer
+        stamp:
+          type: string
+        rotbench_version:
+          type: string
+        findings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Finding"
+          description: Present only when findings=1.
+    HistoryRow:
+      type: object
+      additionalProperties: true
+      properties:
+        valid_date:
+          type: string
+        field:
+          type: [string, "null"]
+        old_val:
+          type: [string, "null"]
+        new_val:
+          type: [string, "null"]
+        text:
+          type: string
+        agent:
+          type: [string, "null"]
+        session:
+          type: [string, "null"]
+        ts:
+          type: [string, "null"]
+    HistoryResponse:
+      type: object
+      required: [note, history]
+      properties:
+        note:
+          type: string
+        history:
+          type: array
+          items:
+            $ref: "#/components/schemas/HistoryRow"
+    AskRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+        k:
+          type: integer
+          default: 5
+        budget:
+          type: integer
+          default: 6000
+        type:
+          type: string
+          description: Optional question type override accepted by the server.
+    AskHit:
+      type: object
+      required: [title, rel, score]
+      properties:
+        title:
+          type: string
+        rel:
+          type: string
+        score:
+          type: [number, string, "null"]
+    AskResponse:
+      type: object
+      required: [query, answer, engine, question_type, context_tokens, hits]
+      properties:
+        query:
+          type: string
+        answer:
+          type: [string, "null"]
+        engine:
+          type: string
+        question_type:
+          type: string
+        context_tokens:
+          type: integer
+        hits:
+          type: array
+          items:
+            $ref: "#/components/schemas/AskHit"
+    IngestResponse:
+      type: object
+      required: [index, temporal]
+      properties:
+        index:
+          type: object
+          additionalProperties: true
+        temporal:
+          type: object
+          additionalProperties: true
+    DistillRequest:
+      type: object
+      properties:
+        dry:
+          type: boolean
+          default: false
+        agent:
+          type: string
+    DistillResponse:
+      type: object
+      required: [distill]
+      properties:
+        distill:
+          type: object
+          additionalProperties: true
+    RememberRequest:
+      type: object
+      required: [entity, field, value]
+      properties:
+        entity:
+          type: string
+        field:
+          type: string
+        value:
+          type: string
+        source:
+          type: string
+        agent:
+          type: string
+    RememberResponse:
+      type: object
+      additionalProperties: true
+      required: [entity, field, value, note, action, agent, session, ts]
+      properties:
+        entity:
+          type: string
+        field:
+          type: string
+        value:
+          type: string
+        note:
+          type: string
+        action:
+          type: string
+          enum: [recorded, updated, unchanged]
+        agent:
+          type: string
+        session:
+          type: string
+        ts:
+          type: string
+    ResolveRequest:
+      type: object
+      required: [entity]
+      properties:
+        entity:
+          type: string
+        field:
+          type: string
+        strategy:
+          type: string
+          enum: [latest, keep-both]
+          default: latest
+        agent:
+          type: string
+    ResolvedField:
+      type: object
+      additionalProperties: true
+      properties:
+        field:
+          type: string
+        winner:
+          type: string
+        winner_ts:
+          type: [string, "null"]
+        losers:
+          type: array
+          items:
+            type: string
+        strategy:
+          type: string
+    ResolveResponse:
+      type: object
+      additionalProperties: true
+      required: [note, resolved, agent, session, ts]
+      properties:
+        note:
+          type: [string, "null"]
+        resolved:
+          type: array
+          items:
+            $ref: "#/components/schemas/ResolvedField"
+        agent:
+          type: string
+        session:
+          type: string
+        ts:
+          type: string
