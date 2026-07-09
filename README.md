@@ -36,6 +36,18 @@ hsm history <note> --as-of 2026-06-01   # what was true THEN (temporal layer)
 hsm serve                      # local HTTP API (auth'd, loopback-only)
 ```
 
+Python agents can use the SDK directly:
+
+```python
+from homestead_memory import connect
+
+memory = connect("~/my-vault", agent="my-agent")
+memory.remember("user", "city", "Berlin")
+memory.ask("what city is the user in?")
+```
+
+The local HTTP API is documented in [`docs/openapi.yaml`](docs/openapi.yaml).
+
 **Claude Code / Desktop / Cursor** (MCP):
 
 ```bash
