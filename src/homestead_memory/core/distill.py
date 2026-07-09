@@ -31,6 +31,7 @@ from datetime import date
 from pathlib import Path
 
 from . import provenance
+from . import store
 from . import vault as vaultlib
 
 DISTILLED_DIR = "distilled"
@@ -108,8 +109,7 @@ def _load_json(p: Path) -> dict:
 
 
 def _save_json(p: Path, obj: dict) -> None:
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(obj, indent=1, sort_keys=True))
+    store.atomic_write(p, json.dumps(obj, indent=1, sort_keys=True))
 
 
 # ------------------------------------------------------------------ extraction
@@ -215,7 +215,7 @@ def distill(vault: Path | str | None = None, model: str | None = None,
     prov_token = provenance.format_token(writer_agent, writer_session, writer_ts)
 
     state_p, cite_p = _sidecar(v, STATE_FILE), _sidecar(v, CITATIONS_FILE)
-    state, citations = _load_json(state_p), _load_json(cite_p)
+    state = _load_json(state_p)
     today = date.today().isoformat()
 
     rep = {"scanned": 0, "changed": 0, "facts": 0, "dropped": 0, "failed_notes": 0,
@@ -273,61 +273,74 @@ def distill(vault: Path | str | None = None, model: str | None = None,
             by_entity: dict[str, list[dict]] = {}
             for f in keep:
                 by_entity.setdefault(slugify(str(f["entity"])), []).append(f)
-            for slug, facts in by_entity.items():
-                note_p = v / DISTILLED_DIR / f"{slug}.md"
-                created = not note_p.exists()
-                existing = "" if created else note_p.read_text(errors="replace")
-                fields = _parse_distilled(existing)
-                changelog = _existing_changelog(existing)
-                # date-scoped dedupe keys already present in the changelog
-                seen_lines = set(changelog)
-                entity_name = str(facts[0]["entity"])
-                added: list[str] = []
-                touched = False
-                for f in facts:
-                    fld = _san_field(f["field"])
-                    val = _san_value(f["value"])
-                    cur = fields.get(fld)
-                    if cur and _normalize(cur[0]) == _normalize(val):
-                        # no-op value — but backfill the citation if the sidecar lost it
-                        # (keeps .hsm/citations.json rebuildable from a full re-distill)
-                        citations.setdefault(f"{slug}::{fld}",
-                                             {"source": rp, "quote": str(f.get("quote", "")),
-                                              "value": val, "date": today,
-                                              "agent": writer_agent, "session": writer_session,
-                                              "ts": writer_ts, "sha256": source_sha256})
+
+            def merge_current_notes(citations: dict, write_notes: bool) -> None:
+                for slug, facts in by_entity.items():
+                    note_p = v / DISTILLED_DIR / f"{slug}.md"
+                    created = not note_p.exists()
+                    existing = "" if created else note_p.read_text(errors="replace")
+                    fields = _parse_distilled(existing)
+                    changelog = _existing_changelog(existing)
+                    # date-scoped dedupe keys already present in the changelog
+                    seen_lines = set(changelog)
+                    entity_name = str(facts[0]["entity"])
+                    added: list[str] = []
+                    touched = False
+                    for f in facts:
+                        fld = _san_field(f["field"])
+                        val = _san_value(f["value"])
+                        cur = fields.get(fld)
+                        if cur and _normalize(cur[0]) == _normalize(val):
+                            # no-op value — but backfill the citation if the sidecar lost it
+                            # (keeps .hsm/citations.json rebuildable from a full re-distill)
+                            citations.setdefault(f"{slug}::{fld}",
+                                                 {"source": rp, "quote": str(f.get("quote", "")),
+                                                  "value": val, "date": today,
+                                                  "agent": writer_agent, "session": writer_session,
+                                                  "ts": writer_ts, "sha256": source_sha256})
+                            continue
+                        line = ((f'- {today}: update {fld}: "{cur[0]}" -> "{val}" (source: {rp})')
+                                if cur else
+                                (f'- {today}: recorded {fld}: "{val}" (source: {rp})'))
+                        line = f"{line} {prov_token}"
+                        # ALWAYS update the bullet + citation; dedupe governs the LOG only
+                        fields[fld] = (val, rp)
+                        citations[f"{slug}::{fld}"] = {"source": rp, "quote": str(f.get("quote", "")),
+                                                       "value": val, "date": today,
+                                                       "agent": writer_agent, "session": writer_session,
+                                                       "ts": writer_ts, "sha256": source_sha256}
+                        touched = True
+                        if line not in seen_lines:
+                            added.append(line)
+                            seen_lines.add(line)
+                            rep["changelog_lines"] += 1
+                    if added:
+                        changelog = added + changelog   # newest-first, in extraction order
+                    if touched:
+                        rep["entities_created" if created else "entities_updated"] += 1
+                        if write_notes:
+                            store.atomic_write(
+                                note_p,
+                                _render_distilled(slug, entity_name, fields, changelog))
+
+            if dry:
+                merge_current_notes(_load_json(cite_p), write_notes=False)
+            else:
+                with store.vault_lock(v):
+                    current_state = _load_json(state_p)
+                    if current_state.get(rp) == h:
                         continue
-                    line = ((f'- {today}: update {fld}: "{cur[0]}" -> "{val}" (source: {rp})')
-                            if cur else
-                            (f'- {today}: recorded {fld}: "{val}" (source: {rp})'))
-                    line = f"{line} {prov_token}"
-                    # ALWAYS update the bullet + citation; dedupe governs the LOG only
-                    fields[fld] = (val, rp)
-                    citations[f"{slug}::{fld}"] = {"source": rp, "quote": str(f.get("quote", "")),
-                                                   "value": val, "date": today,
-                                                   "agent": writer_agent, "session": writer_session,
-                                                   "ts": writer_ts, "sha256": source_sha256}
-                    touched = True
-                    if line not in seen_lines:
-                        added.append(line)
-                        seen_lines.add(line)
-                        rep["changelog_lines"] += 1
-                if added:
-                    changelog = added + changelog   # newest-first, in extraction order
-                if touched:
-                    rep["entities_created" if created else "entities_updated"] += 1
-                    if not dry:
-                        note_p.parent.mkdir(parents=True, exist_ok=True)
-                        note_p.write_text(
-                            _render_distilled(slug, entity_name, fields, changelog),
-                            encoding="utf-8")
+                    citations = _load_json(cite_p)
+                    merge_current_notes(citations, write_notes=True)
+                    current_state[rp] = h
+                    _save_json(cite_p, citations)       # evidence first…
+                    _save_json(state_p, current_state)  # …then the processed marker
         except Exception:
             rep["failed_notes"] += 1
             continue                        # merge/write failed → hash NOT recorded
 
-        state[rp] = h                       # only after a clean merge
-
     if not dry:
-        _save_json(cite_p, citations)       # evidence first…
-        _save_json(state_p, state)          # …then the claim that it was processed
+        with store.vault_lock(v):
+            _save_json(cite_p, _load_json(cite_p))      # evidence first…
+            _save_json(state_p, _load_json(state_p))    # …then the processed markers
     return rep

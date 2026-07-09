@@ -21,6 +21,7 @@ from pathlib import Path
 from .. import __version__
 from ..core import distill as distill_mod
 from ..core import index, temporal, verify
+from ..core import remember as remember_mod
 from ..core import vault as vaultlib
 
 PROTOCOL_VERSION = "2024-11-05"
@@ -77,6 +78,17 @@ TOOLS = [
                     "layer (extract cited entity facts from new/changed notes).",
      "inputSchema": {"type": "object", "additionalProperties": False, "required": [],
                      "properties": {"dry": {"type": "boolean", "default": False},
+                                    "agent": {"type": "string",
+                                              "description": "writer identity for provenance"}}}},
+    {"name": "memory_remember",
+     "description": "MUTATES local state: directly write one provenance-stamped "
+                    "distilled fact.",
+     "inputSchema": {"type": "object", "additionalProperties": False,
+                     "required": ["entity", "field", "value"],
+                     "properties": {"entity": {"type": "string"},
+                                    "field": {"type": "string"},
+                                    "value": {"type": "string"},
+                                    "source": {"type": "string"},
                                     "agent": {"type": "string",
                                               "description": "writer identity for provenance"}}}},
 ]
@@ -177,6 +189,14 @@ def call_tool(name: str, args: dict, vault: Path) -> dict:
         agent = args.get("agent")
         rep = distill_mod.distill(vault, dry=bool(args.get("dry", False)),
                                   agent=str(agent) if agent is not None else None)
+        return _text_result(json.dumps(rep, indent=1))
+    if name == "memory_remember":
+        rep = remember_mod.remember(
+            str(args["entity"]), str(args["field"]), str(args["value"]),
+            vault=vault,
+            source=str(args["source"]) if args.get("source") is not None else None,
+            agent=str(args["agent"]) if args.get("agent") is not None else None,
+        )
         return _text_result(json.dumps(rep, indent=1))
     raise KeyError(name)
 

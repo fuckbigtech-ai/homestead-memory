@@ -10,6 +10,7 @@ the verification gate, and change history over HTTP.
     POST /ask     {"query","k"}       -> {answer, hits, engine}
     POST /ingest                      -> index + temporal build report
     POST /distill {"dry","agent"}     -> distilled layer write pass report
+    POST /remember {"entity","field","value","source","agent"} -> direct distilled write
     GET  /verify                      -> memory-integrity report (RotBench)
     GET  /history?note=X[&as_of=Y]    -> a note's recorded change history
 
@@ -30,6 +31,7 @@ from urllib.parse import urlparse, parse_qs
 
 from ..core import distill as distill_mod
 from ..core import index, temporal, verify
+from ..core import remember as remember_mod
 
 _LOOPBACK = {"127.0.0.1", "localhost", "::1", "[::1]"}
 
@@ -140,6 +142,19 @@ def _make_handler(vault, token: str | None, allowed_hosts: set[str]):
                 rep = distill_mod.distill(vault, dry=bool(b.get("dry", False)),
                                           agent=str(agent) if agent is not None else None)
                 self._send(200, {"distill": rep})
+            elif u.path == "/remember":
+                missing = [k for k in ("entity", "field", "value") if not b.get(k)]
+                if missing:
+                    return self._send(400, {"error": f"{', '.join(missing)} required"})
+                source = b.get("source")
+                agent = b.get("agent")
+                rep = remember_mod.remember(
+                    str(b["entity"]), str(b["field"]), str(b["value"]),
+                    vault=vault,
+                    source=str(source) if source is not None else None,
+                    agent=str(agent) if agent is not None else None,
+                )
+                self._send(200, rep)
             else:
                 self._send(404, {"error": "not found"})
 
@@ -171,7 +186,7 @@ def serve(vault, host: str = "127.0.0.1", port: int = 8848,
         print(f"  auth: send  Authorization: Bearer {token}")
     else:
         print("  auth: DISABLED (--no-auth) — anything local can read/write this memory")
-    print("  GET /health · POST /ask · POST /ingest · POST /distill · GET /verify · GET /history?note=")
+    print("  GET /health · POST /ask · POST /ingest · POST /distill · POST /remember · GET /verify · GET /history?note=")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
