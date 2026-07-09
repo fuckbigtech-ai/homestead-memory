@@ -13,6 +13,7 @@ Stop renting your mind. Own it — and prove it never rotted.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -142,9 +143,30 @@ def cmd_tune(args) -> int:
 
 def cmd_verify(args) -> int:
     from .core import verify
+    if args.demo and args.json:
+        rep = verify.demo_report()
+        print(json.dumps({
+            "ok": rep["ok"],
+            "score": rep["score"],
+            "stamp": rep["stamp"],
+            "notes": rep["notes"],
+            "rotbench_version": rep["rotbench_version"],
+            "findings": rep["findings"],
+        }))
+        return 0 if rep["ok"] else 1
     if args.demo:
         return verify.run_demo()
     rep = verify.verify_vault(args.path, deep=args.deep)
+    if args.json:
+        print(json.dumps({
+            "ok": rep["ok"],
+            "score": rep["score"],
+            "stamp": rep["stamp"],
+            "notes": rep["notes"],
+            "rotbench_version": rep["rotbench_version"],
+            "findings": rep["findings"],
+        }))
+        return 0 if rep["ok"] else 1
     verify.print_report(rep, quiet=args.quiet)
     return 0 if rep["ok"] else 1
 
@@ -222,6 +244,8 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--deep", action="store_true",
                     help="also run retrieval-resilience + fixtures + freshness checks")
     pv.add_argument("--quiet", action="store_true", help="print only the score line")
+    pv.add_argument("--json", action="store_true",
+                    help="emit a machine-readable verification report")
     pv.set_defaults(func=cmd_verify)
 
     pd = sub.add_parser("distill", help="build/refresh the distilled layer (write-time, cited facts)")

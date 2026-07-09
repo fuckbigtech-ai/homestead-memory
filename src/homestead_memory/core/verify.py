@@ -26,7 +26,7 @@ from __future__ import annotations
 import json
 import re
 import tempfile
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -36,6 +36,7 @@ _CHANGELOG_DATE_RE = re.compile(r"^\s*-\s*(\d{4}-\d{2}-\d{2})\b", re.M)
 _STALE_BODY_DAYS = 14   # body's changelog this far past `updated:` = drifted record
 _UPDATED_AHEAD_DAYS = 30  # `updated:` this far AHEAD of the changelog = a tampered field
 _STALE_SOURCE_DAYS = 90   # a citation whose source note is this old = stale evidence
+ROTBENCH_VERSION = "v1.1"
 
 # distilled-note grammar: `- field: value (source: path.md)` and its changelog lines.
 # Value stops at the FIRST '(source:' so a multi-source bullet doesn't fold a citation
@@ -71,6 +72,9 @@ class Finding:
     check: str
     note: str
     detail: str
+
+    def to_dict(self) -> dict:
+        return asdict(self)
 
 
 def _latest_changelog_date(text: str):
@@ -328,12 +332,16 @@ def verify_vault(vault: Path | str | None = None, deep: bool = False) -> dict:
     warn_pen = min(15, round(100 * (len(warns) / n) * 0.3))
     score = max(0, round(100 * clean_frac) - warn_pen)
     ok = (not fails) and score >= 85
+    stamp = "MEMORY INTACT" if ok else "ROT DETECTED"
     return {
         "vault": str(vaultlib._resolve(vault)),
         "n_notes": len(notes),
+        "notes": len(notes),
         "score": score,
         "ok": ok,
-        "findings": findings,
+        "stamp": stamp,
+        "rotbench_version": ROTBENCH_VERSION,
+        "findings": [f.to_dict() for f in findings],
         "fails": fails,
         "warns": warns,
     }
@@ -400,6 +408,30 @@ I'm allergic to penicillin. See [[meds]].
 - {d_drift}: revised dosage guidance (body moved on; updated: never bumped).
 - {d_old}: recorded.
 """
+
+
+def demo_report() -> dict:
+    """Return the rotted demo vault report without printing the narrated demo."""
+    today = date.today()
+    d_old = (today - timedelta(days=60)).isoformat()
+    d_drift = (today - timedelta(days=10)).isoformat()
+    with tempfile.TemporaryDirectory(prefix="fbt-verify-demo-") as d:
+        v = Path(d)
+        (v / "meds.md").write_text(_CLEAN_MEDS.format(d_old=d_old), encoding="utf-8")
+        (v / "penicillin-allergy.md").write_text(_CLEAN_FACT.format(d_old=d_old), encoding="utf-8")
+        (v / "meds.md").unlink()
+        (v / "penicillin-allergy.md").write_text(_ROTTED_FACT.format(d_old=d_old, d_drift=d_drift),
+                                                 encoding="utf-8")
+        (v / "distilled").mkdir()
+        (v / "distilled" / "user.md").write_text(
+            f"---\nname: user\ntype: distilled\nentity: User\nupdated: {d_old}\n---\n\n"
+            "# User\n\n"
+            "- allergy: penicillin (source: penicillin-allergy.md)\n"
+            "- favorite_drink: espresso\n"
+            "- home_city: Berlin (source: deleted-note.md)\n"
+            f"\n## Changelog\n- {d_old}: recorded allergy: \"penicillin\" (source: penicillin-allergy.md)\n",
+            encoding="utf-8")
+        return verify_vault(v)
 
 
 def run_demo() -> int:
