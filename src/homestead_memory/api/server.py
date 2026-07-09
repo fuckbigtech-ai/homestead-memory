@@ -83,9 +83,17 @@ def _make_handler(vault, token: str | None, allowed_hosts: set[str]):
             q = parse_qs(u.query)
             if u.path == "/verify":
                 rep = verify.verify_vault(vault)
-                self._send(200, {"ok": rep["ok"], "score": rep["score"],
-                                 "notes": rep["n_notes"], "fails": len(rep["fails"]),
-                                 "warns": len(rep["warns"])})
+                # Summary by default (this stays a lightweight badge/status endpoint).
+                # Opt into the full findings array with ?findings=1 to avoid multi-MB
+                # responses breaking pollers on large/rotted vaults.
+                payload = {"ok": rep["ok"], "score": rep["score"],
+                           "notes": rep["n_notes"], "fails": len(rep["fails"]),
+                           "warns": len(rep["warns"]),
+                           "stamp": rep["stamp"],
+                           "rotbench_version": rep["rotbench_version"]}
+                if (q.get("findings") or [""])[0].lower() in ("1", "true", "yes"):
+                    payload["findings"] = rep["findings"]
+                self._send(200, payload)
             elif u.path == "/history":
                 note = (q.get("note") or [""])[0]
                 if not note:

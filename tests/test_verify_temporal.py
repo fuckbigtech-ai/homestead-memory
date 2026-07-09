@@ -109,7 +109,7 @@ from homestead_memory.core import index as _index   # noqa: E402
 
 
 def _checks(rep) -> set:
-    return {f.check for f in rep["findings"]}
+    return {f["check"] for f in rep["findings"]}
 
 
 def _distilled(stem_body: str) -> str:
