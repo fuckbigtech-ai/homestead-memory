@@ -48,6 +48,68 @@ memory.ask("what city is the user in?")
 
 The local HTTP API is documented in [`docs/openapi.yaml`](docs/openapi.yaml).
 
+## Integrations
+
+Adapters target the public framework interfaces listed here as of the current
+releases and may need version bumps as those APIs evolve. Core remains
+stdlib-only; install only the extra for the framework you use.
+
+Universal tools work with any orchestrator that can register callables or
+JSON-schema function tools:
+
+```python
+from homestead_memory import connect
+from homestead_memory.adapters.tools import recall_tool, remember_tool, tool_specs, verify_tool
+
+memory = connect("~/my-vault", agent="my-agent")
+tools = [remember_tool(memory), recall_tool(memory), verify_tool(memory)]
+specs = tool_specs(memory)  # name, description, parameters
+```
+
+LangGraph `BaseStore` (targets `langgraph>=0.2`):
+
+```python
+from homestead_memory import connect
+from homestead_memory.adapters.langgraph_store import HomesteadStore
+
+store = HomesteadStore(connect("~/my-vault", agent="langgraph"))
+graph = builder.compile(checkpointer=checkpointer, store=store)
+```
+
+CrewAI storage/memory (targets `crewai>=0.70`, storage-style
+`save/search/reset`):
+
+```python
+from homestead_memory import connect
+from homestead_memory.adapters.crewai_memory import HomesteadCrewAIStorage
+
+storage = HomesteadCrewAIStorage(connect("~/my-vault", agent="crewai"))
+storage.save("Researcher found the supplier shortlist", metadata={"task": "supplier_shortlist"})
+```
+
+AutoGen `autogen_core` Memory protocol (targets `autogen-core>=0.4`):
+
+```python
+from autogen_core.memory import MemoryContent, MemoryMimeType
+from homestead_memory import connect
+from homestead_memory.adapters.autogen_memory import HomesteadAutoGenMemory
+
+memory = HomesteadAutoGenMemory(connect("~/my-vault", agent="autogen"))
+await memory.add(MemoryContent(content="Use metric units", mime_type=MemoryMimeType.TEXT))
+```
+
+OpenAI Agents SDK Session protocol or function tools (targets
+`openai-agents>=0.0.1`):
+
+```python
+from homestead_memory import connect
+from homestead_memory.adapters.openai_agents import HomesteadSession, function_tools
+
+memory = connect("~/my-vault", agent="openai-agents")
+session = HomesteadSession(memory, session_id="user-123")
+agent_tools = function_tools(memory)
+```
+
 **Claude Code / Desktop / Cursor** (MCP):
 
 ```bash
