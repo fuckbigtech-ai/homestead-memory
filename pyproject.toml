@@ -23,6 +23,10 @@ dependencies = []
 [project.optional-dependencies]
 api = ["fastapi>=0.110", "uvicorn>=0.27"]
 sign = ["cryptography>=42"]
+langgraph = ["langgraph>=0.2"]
+crewai = ["crewai>=0.70"]
+autogen = ["autogen-core>=0.4"]
+openai-agents = ["openai-agents>=0.0.1"]
 
 [project.scripts]
 hsm = "homestead_memory.cli:main"
