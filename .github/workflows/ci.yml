@@ -28,9 +28,11 @@ jobs:
       - name: install
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[sign]" pytest
+          pip install -e ".[sign]" pytest pytest-timeout
       - name: unit + protocol tests
-        run: pytest tests/ -q
+        # thread method works on Windows (signal-based timeouts do not); a hanging
+        # test fails named instead of silently killing the whole job.
+        run: pytest tests/ -q --timeout=120 --timeout-method=thread
       - name: cli smoke (init → verify → demo catches rot)
         shell: bash
         run: |
