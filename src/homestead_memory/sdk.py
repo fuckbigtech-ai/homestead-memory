@@ -107,6 +107,22 @@ class Memory:
             agent=agent if agent is not None else self.agent,
         )
 
+    def okf_import(
+        self,
+        source: str | Path,
+        agent: str = "okf-import",
+    ) -> dict[str, Any]:
+        """Import an Open Knowledge Format file or directory into this vault."""
+        from .adapters.okf import okf_import
+
+        return okf_import(source, vault=self.vault, agent=agent)
+
+    def okf_export(self, out_dir: str | Path | None = None) -> dict[str, Any]:
+        """Export this vault as an Open Knowledge Format directory."""
+        from .adapters.okf import okf_export
+
+        return okf_export(vault=self.vault, out_dir=out_dir)
+
 
 def connect(vault: str | Path | None = None, agent: str | None = None) -> Memory:
     """Create a Memory client for a vault."""
