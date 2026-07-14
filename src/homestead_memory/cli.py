@@ -411,6 +411,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    import sys
+
+    # Windows consoles default to cp1252, which can't encode the ✅/🔴 output and
+    # would crash print_report with UnicodeEncodeError. Reconfigure to UTF-8 so hsm
+    # renders (and never crashes) on any console.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
+
     parser = build_parser()
     args = parser.parse_args(argv)
     if not getattr(args, "command", None):
