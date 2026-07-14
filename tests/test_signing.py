@@ -212,7 +212,7 @@ def test_wrong_signer_pin_is_wrong_signer_and_deep_verify_fails(tmp_path, capsys
     assert findings[0]["level"] == "fail"
 
 
-@pytest.mark.skipif(not hasattr(os, "chmod"), reason="chmod unavailable")
+@pytest.mark.skipif(os.name != "posix", reason="POSIX file permissions (0600) not enforced on Windows")
 def test_existing_key_is_chmodded_to_0600_on_load(tmp_path):
     key = tmp_path / "key"
     signing.load_or_create_key(key)

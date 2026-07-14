@@ -25,7 +25,16 @@ def atomic_write(path: Path | str, text: str) -> None:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
-        os.replace(tmp, p)
+        # Windows raises PermissionError (WinError 5) if the destination is open in
+        # another thread; retry briefly so concurrent writers do not spuriously fail.
+        for _attempt in range(10):
+            try:
+                os.replace(tmp, p)
+                break
+            except PermissionError:
+                if os.name != "nt" or _attempt == 9:
+                    raise
+                time.sleep(0.02)
         tmp = None
         dir_fd = None
         try:
