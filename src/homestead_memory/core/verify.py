@@ -6,7 +6,7 @@ Every other memory layer asks you to *hope* it remembers. `hsm verify` scores
 whether your memory can still prove it surfaces the *current* truth over stale,
 contradictory, or dangling copies — and exits non-zero when it can't.
 
-This is a first, honest scoring model (v0.0.1). It runs real checks over a
+This is a first, honest scoring model. It runs real checks over a
 markdown vault:
 
   - frontmatter integrity  (a note that won't parse is unrecoverable memory)

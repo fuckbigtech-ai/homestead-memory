@@ -14,3 +14,7 @@ venv/
 # local benchmark data (LongMemEval is 264MB — never commit)
 benchmarks/data/
 .fbt-scratch/
+
+# stray export bundles
+*.tar.gz
+tmp*/
