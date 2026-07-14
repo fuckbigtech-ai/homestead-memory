@@ -7,4 +7,6 @@ __all__ = [
     "crewai_memory",
     "autogen_memory",
     "openai_agents",
+    "openai_compat",
+    "litellm_memory",
 ]

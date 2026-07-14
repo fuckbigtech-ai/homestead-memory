@@ -48,6 +48,53 @@ memory.ask("what city is the user in?")
 
 The local HTTP API is documented in [`docs/openapi.yaml`](docs/openapi.yaml).
 
+## Memory under the router
+
+Routers can swap the served model while homestead-memory keeps the same vault
+underneath. The model name is just the runtime argument; provenance is stamped as
+`name@model` in the `agent` field when a write happens.
+
+```python
+from homestead_memory import connect
+from homestead_memory.adapters.openai_compat import MemoryChat
+
+memory = connect("~/my-vault")
+
+def remember_reply(response, memory, agent):
+    memory.remember(
+        "conversation",
+        "last_reply",
+        response.choices[0].message.content,
+        source="chat",
+        agent=agent,
+    )
+
+chat = MemoryChat(openai_compatible_client, memory, remember_fn=remember_reply)
+chat.create(model="claude-sonnet-4.7", messages=[{"role": "user", "content": "brief me"}])
+chat.create(model="glm-4.7", messages=[{"role": "user", "content": "continue"}])
+
+memory.history("conversation")  # agents include assistant@claude-sonnet-4.7 and assistant@glm-4.7
+```
+
+LiteLLM can use the same pattern with a pre-call injection helper and a success
+logger:
+
+```python
+from homestead_memory import connect
+from homestead_memory.adapters.litellm_memory import MemoryLogger, inject_memory
+
+memory = connect("~/my-vault")
+messages = inject_memory([{"role": "user", "content": "brief me"}], memory)
+
+# LiteLLM callback registration style depends on your app setup.
+logger = MemoryLogger(memory, agent_name="assistant")
+```
+
+MCP already sits above harness-level routers. In a `claude-code-router`-style
+setup that swaps the backend model, homestead-memory keeps working with
+zero config because memory is external to the model. `history()` and `verify`
+then attribute every recorded fact to the exact `name@model` that wrote it.
+
 ## Integrations
 
 Adapters target the public framework interfaces listed here as of the current
