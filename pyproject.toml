@@ -27,6 +27,7 @@ langgraph = ["langgraph>=0.2"]
 crewai = ["crewai>=0.70"]
 autogen = ["autogen-core>=0.4"]
 openai-agents = ["openai-agents>=0.0.1"]
+litellm = ["litellm>=1.40"]
 
 [project.scripts]
 hsm = "homestead_memory.cli:main"
