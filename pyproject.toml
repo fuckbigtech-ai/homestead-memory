@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "homestead-memory"
-version = "0.0.1"
-description = "Verifiable, local-first AI memory. Own your mind — and prove it never rotted."
+version = "0.2.0"
+description = "Verifiable, local-first AI memory. Own your mind, and prove it never rotted."
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.10"
@@ -35,3 +35,10 @@ fbt = "homestead_memory.cli:main"  # legacy alias, removed before 1.0
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+# The example scripts under examples/ are imported by their tests
+# (`from examples import hot_swap_demo`). Put the repo root on sys.path so the
+# bare `pytest` console script (as CI runs it) behaves like `python -m pytest`.
+pythonpath = ["."]
+testpaths = ["tests"]
