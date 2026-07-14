@@ -78,7 +78,7 @@ def remember(entity, field, value, vault=None, source=None, agent=None, session=
         "entity": entity,
         "field": fld,
         "value": val,
-        "note": str(Path(distill.DISTILLED_DIR) / f"{slug}.md"),
+        "note": (Path(distill.DISTILLED_DIR) / f"{slug}.md").as_posix(),
         "action": action,
         "agent": writer_agent,
         "session": writer_session,
