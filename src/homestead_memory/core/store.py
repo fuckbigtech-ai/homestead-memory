@@ -18,7 +18,10 @@ def atomic_write(path: Path | str, text: str) -> None:
     tmp = None
     try:
         fd, tmp = tempfile.mkstemp(prefix=f".{p.name}.", suffix=".tmp", dir=str(p.parent))
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
+        # newline="" writes the string's \n verbatim (no CRLF translation), so notes
+        # are LF on every platform — matches the signing hash + keeps round-trips
+        # byte-identical on Windows.
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
