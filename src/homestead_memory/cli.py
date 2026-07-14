@@ -227,6 +227,13 @@ def cmd_resolve(args) -> int:
 
 
 def cmd_export(args) -> int:
+    if args.format == "okf":
+        from .adapters.okf import okf_export
+
+        res = okf_export(args.path, out_dir=args.out)
+        print(f"exported {res['exported']} notes to {res['out_dir']} (OKF)")
+        return 0
+
     from .core import portability
     res = portability.export_vault(args.path, out_path=args.out)
     print(f"exported {res['notes']} notes to {res['bundle']}")
@@ -235,6 +242,13 @@ def cmd_export(args) -> int:
 
 
 def cmd_import(args) -> int:
+    if args.format == "okf":
+        from .adapters.okf import okf_import
+
+        res = okf_import(args.source, vault=args.path, agent=args.agent or "okf-import")
+        print(f"imported {res['imported']} memories from okf ({res['skipped']} skipped)")
+        return 0
+
     from .core import portability
     res = portability.import_memories(args.source, vault=args.path, fmt=args.format,
                                       agent=args.agent)
@@ -350,22 +364,24 @@ def build_parser() -> argparse.ArgumentParser:
                      help="resolver identity stamped on distilled changelog provenance")
     prs.set_defaults(func=cmd_resolve)
 
-    pe = sub.add_parser("export", help="export the vault to a portable .tar.gz bundle")
+    pe = sub.add_parser("export", help="export the vault as a Homestead bundle or OKF directory")
     pe.add_argument("path", nargs="?", default=None,
                     help="vault directory (default: $HSM_VAULT, else cwd)")
     pe.add_argument("-o", "--out", default=None, metavar="OUT",
-                    help="bundle path (default: <vault-name>-export.tar.gz in cwd)")
+                    help="bundle path or OKF directory (default: format-specific path in cwd)")
+    pe.add_argument("--format", default="homestead", choices=["homestead", "okf"],
+                    help="export format (default: homestead)")
     pe.set_defaults(func=cmd_export)
 
-    pim = sub.add_parser("import", help="import memories from Mem0, Zep, JSON, or Homestead")
-    pim.add_argument("source", help="JSON export, Homestead .tar.gz bundle, or directory")
+    pim = sub.add_parser("import", help="import memories from Mem0, Zep, JSON, Homestead, or OKF")
+    pim.add_argument("source", help="JSON export, Homestead bundle, OKF markdown, or directory")
     pim.add_argument("path", nargs="?", default=None,
                      help="vault directory (default: $HSM_VAULT, else cwd)")
     pim.add_argument("--format", default="auto",
-                     choices=["auto", "mem0", "zep", "homestead", "generic"],
+                     choices=["auto", "mem0", "zep", "homestead", "generic", "okf"],
                      help="source format (default: auto)")
     pim.add_argument("--agent", default=None,
-                     help="writer identity stamped on imported-note changelog provenance")
+                     help="writer identity stamped on imported-note provenance")
     pim.set_defaults(func=cmd_import)
 
     pt = sub.add_parser("tune",

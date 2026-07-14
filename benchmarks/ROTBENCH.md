@@ -1,13 +1,21 @@
-# RotBench — a memory-integrity score
+# RotBench — the memory-integrity / tamper / poisoning benchmark
 
 RotBench v1.1
+
+**LOCOMO / LongMemEval measure whether the model REMEMBERS. RotBench measures
+whether the memory can be TRUSTED — that it wasn't corrupted, poisoned, or
+silently rewritten.** Recall and QA are a crowded, contested lane; integrity is
+the axis nobody ships as a gate. Recall has LOCOMO and LongMemEval, hallucination
+has HaluMem, poisoning-*attacks* have MPBench — but nothing scores whether the
+stored memory itself was tampered with or silently corrupted. And every recall
+benchmark reads against a fixed answer key that people keep disputing; RotBench
+doesn't read against a key at all — it checks the store against itself.
 
 Every memory benchmark measures **recall** (can you find it?) or **QA** (can you
 answer from it?). None measure whether the memory is still *intact*. Memory rots
 quietly: a note contradicts itself, a claim's source disappears, a body drifts past
 its own changelog, an extracted "fact" was never actually supported by its source.
-An independent 2026 evaluation of 8 major memory frameworks found **none** ship
-"freshness scoring to discard stale context before it corrupts retrieval."
+Most memory tools store locally now; almost none verify what they stored.
 
 RotBench is that missing number: **a 0-100 integrity score over a memory store,
 computed by mechanical checks — no LLM judge, no vibes.**
@@ -18,14 +26,47 @@ citations, and unresolved merge conflicts need to be caught mechanically before
 they become context for the next agent.
 
 The honest homestead-memory line today is **85% recall / 52.8% QA / RotBench 99.4**.
-Do not inflate it. RotBench is here to make memory claims falsifiable, not prettier.
+Do not inflate it. Recall and QA are honest but mid; **RotBench is the number that's
+actually ours, because no one else scores the integrity of the store itself.** It is
+here to make memory claims falsifiable, not prettier.
+
+## Threat model
+
+RotBench scores memory against three attack classes — the things that make a
+memory store untrustworthy, not merely incomplete:
+
+| class | what it is | the check that catches it | level |
+|---|---|---|---|
+| **rot** | a note contradicts itself, a citation points at a source that's gone, or a body drifts past its own changelog | `self_contradiction`, `dangling_citation`, `duplicate_value`, `temporal_mismatch`, `stale_body` | FAIL / WARN |
+| **tamper** | a note's bytes are edited *after* the store was attested — a post-write rewrite, not a legitimate update | the detached **Ed25519 signature** over the vault's canonical markdown state → `provenance_integrity` (FAIL on an invalid/wrong-signer signature; WARN on a stale-but-valid one) | FAIL / WARN |
+| **poisoning** | untrusted input injects a "memory" with no real source — an agent writes a distilled fact carrying no resolving citation | `uncited_claim` (cite-or-drop: every distilled bullet must carry a `(source: …)` that *resolves*). Whether the cited source actually *supports* the claim is the separate distilled-layer verbatim-quote check. | FAIL |
+
+This is not a new idea grafted on — the detection already existed in
+`src/homestead_memory/core/verify.py`: signing catches file tamper, `uncited_claim`
+catches injected-unsourced (poisoned) claims, `dangling_citation` catches dead
+evidence. RotBench makes it **explicit, fixtured, and named** (`tests/test_rotbench_integrity.py`
+proves each class is caught with the right Finding).
+
+### Prior art
+
+- **"Context rot"** (Chroma, Jul 2025) — the concept that retrieved context degrades
+  as a store accumulates stale/contradictory fragments; the `rot` family targets
+  exactly this.
+- **"From Untrusted Input to Trusted Memory: A Systematic Study of Memory
+  Poisoning Attacks in LLM Agents"** (arXiv, Jun 2026) — systematizes memory
+  poisoning into six attack classes and nine vulnerabilities and introduces
+  **MPBench** to measure how well those *attacks* succeed. RotBench is the
+  complementary half: MPBench scores the attack; RotBench scores the store's
+  *defenses* — the cite-or-drop gate (`uncited_claim`) against unsourced
+  injection, and the Ed25519 signature (`provenance_integrity`) against
+  post-write tampering.
 
 ## Conformance
 
-The reference scorer is:
+The reference scorer (use `--deep` to include the signature/tamper checks):
 
 ```bash
-hsm verify --json /path/to/vault
+hsm verify --deep --json /path/to/vault
 ```
 
 It emits this JSON shape:
@@ -96,6 +137,7 @@ Rows marked "(deep)" run only when `hsm verify --deep` is enabled.
 | `dangling_citation` | FAIL | a citation is absolute, not `.md`, escapes the vault, or does not resolve inside it |
 | `duplicate_value` | FAIL | the same distilled field is recorded twice with conflicting current values |
 | `temporal_mismatch` | FAIL | a distilled current value contradicts the latest-by-date changelog assertion |
+| `provenance_integrity` | FAIL/WARN | (deep) the Ed25519 signature over the vault's canonical state: FAIL if invalid / wrong signer, WARN if stale (vault changed since signing) — the tamper axis |
 | `fallback_resilience` | FAIL | (deep) direct-scan retrieval cannot find a known term when the index is unavailable |
 | `fixture_miss` | FAIL | (deep) a golden recall query did not retrieve its expected note |
 | `required_field` | WARN | required metadata, currently `name:`, is missing |

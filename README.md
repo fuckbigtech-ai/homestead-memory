@@ -173,10 +173,20 @@ claude mcp add homestead-memory -- hsm mcp ~/my-vault
 gets shadowed by a stale one. You find out weeks later, when your agent confidently
 tells you something that stopped being true in March.
 
+And rot is only the *passive* failure. Memory also gets **tampered** with (a fact
+edited after it was written) and **poisoned** (untrusted input injects a "memory"
+that was never true — a named 2026 attack class). homestead-memory catches all
+three mechanically: sign the vault and any edited byte breaks the signature; a
+distilled claim must cite a source that resolves or it's dropped. Recall benchmarks
+measure whether the model *remembers*; **RotBench measures whether the memory can be
+trusted** — see [`benchmarks/ROTBENCH.md`](benchmarks/ROTBENCH.md).
+
 homestead-memory is built around three commitments:
 
 1. **Markdown-primary.** The human-readable files ARE the memory. Indexes and
    projections are derived and disposable. You can leave any time — it's your folder.
+   Import/export Google's **Open Knowledge Format** (`hsm export --format okf`) plus
+   Mem0/Zep: we're OKF, but signed and verifiable.
 2. **Verification over trust.** Integrity is a *number* (RotBench, 0–100), computed
    by mechanical checks — no LLM judging its own homework. See
    [`benchmarks/ROTBENCH.md`](benchmarks/ROTBENCH.md).

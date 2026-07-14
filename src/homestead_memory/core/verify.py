@@ -524,8 +524,10 @@ def run_demo() -> int:
 
         print("\n② now something rots — a linked note is deleted, the fact starts")
         print("   arguing with itself about its status, its body drifts past its")
-        print("   own `updated:` date, and a DISTILLED note carries an uncited")
-        print("   claim + a citation to a source that no longer exists. A cloud")
+        print("   own `updated:` date (ROT), and a DISTILLED note carries an")
+        print("   uncited claim from untrusted input (POISONING) plus a citation")
+        print("   to a source that no longer exists (ROT). Sign the vault and an")
+        print("   edited byte becomes TAMPER the signature catches. A cloud")
         print("   tool would never tell you:\n")
         (v / "meds.md").unlink()  # dangling [[meds]]
         (v / "penicillin-allergy.md").write_text(_ROTTED_FACT.format(d_old=d_old, d_drift=d_drift),
