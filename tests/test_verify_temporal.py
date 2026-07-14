@@ -25,7 +25,7 @@ ok
 
 
 def _write(root: Path, name: str, text: str) -> None:
-    (root / name).write_text(text)
+    (root / name).write_text(text, encoding="utf-8")
 
 
 def test_verify_clean_vault_intact(tmp_path):
@@ -83,7 +83,7 @@ def test_changelog_parse_anchored_transitions():
 
 
 def test_temporal_build_history_asof(tmp_path):
-    (tmp_path / "proj.md").write_text(NOTE_CL)
+    (tmp_path / "proj.md").write_text(NOTE_CL, encoding="utf-8")
     rep = temporal.build(tmp_path)
     assert rep["entries"] == 2
     assert (tmp_path / ".hsm" / "temporal.sqlite").exists()
@@ -94,7 +94,7 @@ def test_temporal_build_history_asof(tmp_path):
 
 
 def test_temporal_legacy_fbt_dir_read(tmp_path):
-    (tmp_path / "proj.md").write_text(NOTE_CL)
+    (tmp_path / "proj.md").write_text(NOTE_CL, encoding="utf-8")
     temporal.build(tmp_path)
     # simulate a legacy layout: move .hsm -> .fbt
     legacy = tmp_path / ".fbt"
@@ -156,7 +156,7 @@ def test_v11_updated_ahead(tmp_path):
 def test_v11_index_drift(tmp_path, monkeypatch):
     _write(tmp_path, "n.md", OTHER)
     hsm = tmp_path / ".hsm"; hsm.mkdir()
-    (hsm / "ingest.json").write_text('{"content_hash": "STALE", "collection": "x"}')
+    (hsm / "ingest.json").write_text('{"content_hash": "STALE", "collection": "x"}', encoding="utf-8")
     monkeypatch.setattr(_index, "_QMD", "/usr/bin/qmd")          # qmd 'available'
     monkeypatch.setattr(_index, "_collection_exists", lambda name: True)  # avoid not_indexed
     rep = verify.verify_vault(tmp_path, deep=True)
