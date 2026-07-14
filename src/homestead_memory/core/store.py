@@ -86,7 +86,11 @@ def vault_lock(vault: Path | str, timeout: float = 10.0, stale: float = 120.0):
                 if not lockpath.exists():
                     continue
 
-            if pid is not None and hasattr(os, "kill"):
+            # os.kill(pid, 0) is a POSIX liveness idiom. On Windows os.kill exists
+            # but maps to TerminateProcess (it is NOT a liveness probe and can wedge
+            # the process), so restrict pid-liveness stealing to POSIX and let other
+            # platforms fall through to the mtime-stale path below.
+            if pid is not None and os.name == "posix":
                 alive = True
                 try:
                     os.kill(pid, 0)
