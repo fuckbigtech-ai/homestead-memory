@@ -8,7 +8,7 @@ fbt — the homestead-memory CLI.
     hsm verify [path]       score memory integrity /100 — nonzero exit on rot
     hsm verify --demo       plant a contradiction and watch the gate catch it
 
-Stop renting your mind. Own it — and prove it never rotted.
+Stop renting your mind. Own it, and catch it when it rots.
 """
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ def cmd_init(args) -> int:
     print("\nnext:")
     print(f"  export HSM_VAULT={root}")
     print("  hsm ingest .   # index it")
-    print("  hsm verify .   # prove it hasn't rotted")
+    print("  hsm verify .   # catch rot before you trust it")
     return 0
 
 
@@ -273,7 +273,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="hsm",
         description="homestead-memory — verifiable, local-first AI memory. "
-                    "Own your mind — and prove it never rotted.",
+                    "Own your mind. Catch it when it rots.",
     )
     p.add_argument("--version", action="version", version=f"homestead-memory {__version__}")
     sub = p.add_subparsers(dest="command", metavar="<command>")

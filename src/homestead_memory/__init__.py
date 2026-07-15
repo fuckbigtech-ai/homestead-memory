@@ -1,6 +1,6 @@
 """homestead-memory — verifiable, local-first AI memory.
 
-Stop renting your mind. Own it — and prove it never rotted.
+Stop renting your mind. Own it, and catch it when it rots.
 """
 
 from .sdk import Memory, connect

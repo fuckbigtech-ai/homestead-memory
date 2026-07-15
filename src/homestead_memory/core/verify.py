@@ -544,6 +544,6 @@ def run_demo() -> int:
         rotted = verify_vault(v)
         print_report(rotted)
 
-        print("\n③ that's the whole point: it PROVES it, live. Own your mind —")
-        print("   and prove it never rotted.")
+        print("\n③ that's the whole point: it CATCHES it, live. Own your mind,")
+        print("   and know the moment it rots.")
         return 0 if rotted["ok"] else 1
