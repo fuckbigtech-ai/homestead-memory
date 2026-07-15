@@ -3,10 +3,10 @@
 **Stop renting your mind.**
 
 Local-first, verifiable AI memory. Your notes stay plain markdown you can read,
-`git diff`, and own — and the memory **proves it hasn't rotted.**
+`git diff`, and own, and the memory **catches its own rot, tampering, and poisoning.**
 
 Every other memory layer asks you to *hope* it remembers. This one lets you
-*watch it prove it didn't rot:*
+*watch it catch the rot, live:*
 
 ![hsm verify --demo: a clean vault scores MEMORY INTACT 100/100, then rot is planted and caught live: ROT DETECTED 0/100 with every finding named](docs/demo.gif)
 
