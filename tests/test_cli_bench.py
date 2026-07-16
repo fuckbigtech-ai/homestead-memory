@@ -1,4 +1,5 @@
 """CLI surface + benchmark unit helpers (no model calls, no qmd)."""
+import json
 from pathlib import Path
 
 from homestead_memory.benchmarks import longmemeval as lme
@@ -19,6 +20,23 @@ def test_cli_verify_clean_and_rot(tmp_path):
     (root / "rot.md").write_text(
         "---\nname: rot\nstatus: hot\nmetadata:\n  status: done\n---\nx\n")
     assert main(["verify", str(root), "--quiet"]) == 1     # nonzero on rot
+
+
+def test_cli_ask_json_returns_bounded_context(tmp_path, capsys, monkeypatch):
+    from homestead_memory.core import index
+
+    monkeypatch.setattr(index, "_QMD", None)
+    monkeypatch.delenv("HSM_READER", raising=False)
+    (tmp_path / "memory.md").write_text("Humza uses Homestead Memory for durable context.\n")
+
+    rc = main(["ask", "what provides durable context?", str(tmp_path),
+               "--budget", "100", "--json"])
+
+    assert rc == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["context_tokens"] <= 100
+    assert "Homestead Memory" in payload["context"]
+    assert payload["hits"]
 
 
 # ------------------------------------------------------- benchmark unit bits

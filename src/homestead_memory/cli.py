@@ -75,6 +75,10 @@ def cmd_ingest(args) -> int:
     rep = index.ingest(args.path)
     if rep["engine"] == "none":
         print(rep["note"], file=sys.stderr)
+        return 1
+    if not rep.get("ok"):
+        print(rep.get("note") or rep.get("reason") or "qmd ingest failed", file=sys.stderr)
+        return 1
     else:
         tail = " ".join(rep.get("embed_tail") or [])
         print(f"indexed vault into qmd collection '{rep['collection']}'  {tail}".rstrip())
@@ -108,7 +112,11 @@ def cmd_history(args) -> int:
 def cmd_ask(args) -> int:
     from .core import index
     res = index.ask(args.question, args.path, k=args.k,
-                    question_type=args.type, token_budget=args.budget)
+                    question_type=args.type, token_budget=args.budget,
+                    retrieval_mode=args.retrieval)
+    if args.json:
+        print(json.dumps(res, ensure_ascii=False, default=str))
+        return 0 if res["hits"] else 1
     if not res["hits"]:
         print("no matches found.", file=sys.stderr)
         return 1
@@ -122,6 +130,46 @@ def cmd_ask(args) -> int:
         sc = f"{h['score']:.2f}" if isinstance(h["score"], (int, float)) else str(h["score"])
         print(f"  • [{sc}] {h['title']}  ({h['rel']})")
     return 0
+
+
+def cmd_search(args) -> int:
+    from .core import index
+    report = index.search_report(args.query, args.path, k=args.k,
+                                 retrieval_mode=args.retrieval)
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, default=str))
+    else:
+        print(f"{report['engine']} · {report['retrieval_mode']} · "
+              f"{report['elapsed_ms']:.1f}ms" +
+              (f" · degraded: {report['reason']}" if report["degraded"] else ""))
+        for hit in report["hits"]:
+            score = hit.get("score")
+            rendered = f"{score:.2f}" if isinstance(score, (int, float)) else str(score)
+            print(f"  [{rendered}] {hit.get('title') or hit['rel']}  ({hit['rel']})")
+    return 0 if report["hits"] else 1
+
+
+def cmd_qmd(args) -> int:
+    from .core import index, qmd_runtime
+    action = args.action
+    if action == "start":
+        report = qmd_runtime.start(index._QMD) if index._QMD else {
+            "ok": False, "reason": "qmd_not_installed"}
+    elif action == "stop":
+        report = qmd_runtime.stop()
+    elif action == "status":
+        report = qmd_runtime.status()
+    elif action == "doctor":
+        root = vaultlib._resolve(args.path)
+        report = qmd_runtime.doctor(index._QMD, index.collection_name(root))
+    else:
+        report = index.ingest(args.path)
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, default=str))
+    else:
+        for key, value in report.items():
+            print(f"{key}: {value}")
+    return 0 if report.get("ok") else 1
 
 
 def cmd_tune(args) -> int:
@@ -298,7 +346,28 @@ def build_parser() -> argparse.ArgumentParser:
                     help="question type (default: auto-classified by the heuristic router)")
     pa.add_argument("--budget", dest="budget", type=int, default=6000,
                     help="context token budget (~4 chars/token; default: 6000)")
+    pa.add_argument("--retrieval", choices=["fast", "balanced", "quality"],
+                    default="balanced", help="retrieval profile (default: balanced)")
+    pa.add_argument("--json", action="store_true",
+                    help="emit the complete machine-readable retrieval result")
     pa.set_defaults(func=cmd_ask)
+
+    psearch = sub.add_parser("search", help="retrieve ranked passages without a reader")
+    psearch.add_argument("query")
+    psearch.add_argument("path", nargs="?", default=None,
+                         help="vault directory (default: $HSM_VAULT, else cwd)")
+    psearch.add_argument("-k", type=int, default=5)
+    psearch.add_argument("--retrieval", choices=["fast", "balanced", "quality"],
+                         default="balanced", help="retrieval profile (default: balanced)")
+    psearch.add_argument("--json", action="store_true")
+    psearch.set_defaults(func=cmd_search)
+
+    pqmd = sub.add_parser("qmd", help="manage Homestead's dedicated qmd runtime")
+    pqmd.add_argument("action", choices=["start", "stop", "status", "doctor", "refresh"])
+    pqmd.add_argument("path", nargs="?", default=None,
+                      help="vault directory used by doctor/refresh")
+    pqmd.add_argument("--json", action="store_true")
+    pqmd.set_defaults(func=cmd_qmd)
 
     ph = sub.add_parser("history", help="show a note's recorded change history (temporal)")
     ph.add_argument("note", help="note stem or relpath")

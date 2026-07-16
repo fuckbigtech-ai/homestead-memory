@@ -470,8 +470,9 @@ def run_question(item: dict, mode: str, k: int = 6) -> dict:
         # cleanup the transient qmd collection
         try:
             subprocess.run([shutil.which("qmd") or "qmd", "collection", "remove",
-                            index.collection_name(root), "--index", index.QMD_INDEX],
-                           capture_output=True, timeout=30)
+                            index.collection_name(root)], capture_output=True, timeout=30,
+                           env=index.qmd_runtime.environment(
+                               qmd_bin=shutil.which("qmd") or "qmd"))
         except Exception:
             pass
     return {"id": item.get("question_id"), "type": item.get("question_type"),

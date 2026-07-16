@@ -158,6 +158,7 @@ def test_v11_index_drift(tmp_path, monkeypatch):
     hsm = tmp_path / ".hsm"; hsm.mkdir()
     (hsm / "ingest.json").write_text('{"content_hash": "STALE", "collection": "x"}', encoding="utf-8")
     monkeypatch.setattr(_index, "_QMD", "/usr/bin/qmd")          # qmd 'available'
+    monkeypatch.setattr(_index, "qmd_available", lambda: True)
     monkeypatch.setattr(_index, "_collection_exists", lambda name: True)  # avoid not_indexed
     rep = verify.verify_vault(tmp_path, deep=True)
     assert "index_drift" in _checks(rep)             # stored hash != current content

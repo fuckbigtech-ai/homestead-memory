@@ -64,8 +64,9 @@ def test_ask_uses_tuned_k(tmp_path, monkeypatch):
     (tmp_path / ".hsm").mkdir()
     (tmp_path / ".hsm" / "tuning.json").write_text(json.dumps({"k": 9}))
     captured = {}
-    real = index.search
-    monkeypatch.setattr(index, "search", lambda q, v, k: captured.update(k=k) or real(q, v, k))
+    real = index.search_report
+    monkeypatch.setattr(index, "search_report",
+                        lambda q, v, k, mode: captured.update(k=k) or real(q, v, k, mode))
     index.ask("anything", tmp_path)                  # k unset → resolves to tuned k=9
     assert captured["k"] == 9
 
@@ -77,8 +78,9 @@ def test_ask_explicit_k_overrides_tuning(tmp_path, monkeypatch):
     (tmp_path / ".hsm").mkdir()
     (tmp_path / ".hsm" / "tuning.json").write_text(json.dumps({"k": 9}))
     captured = {}
-    real = index.search
-    monkeypatch.setattr(index, "search", lambda q, v, k: captured.update(k=k) or real(q, v, k))
+    real = index.search_report
+    monkeypatch.setattr(index, "search_report",
+                        lambda q, v, k, mode: captured.update(k=k) or real(q, v, k, mode))
     index.ask("anything", tmp_path, k=2)             # explicit k wins over tuning
     assert captured["k"] == 2
 

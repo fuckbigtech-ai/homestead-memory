@@ -140,6 +140,48 @@ def test_direct_scan_fallback(tmp_path, monkeypatch):
     assert hits[0]["engine"] == "direct-scan"
 
 
+def test_balanced_prefers_mcp_and_reports_metadata(tmp_path, monkeypatch):
+    _write(tmp_path, "decision", "use the dedicated runtime")
+    monkeypatch.setattr(index, "qmd_available", lambda: True)
+    monkeypatch.setattr(index.qmd_runtime, "maintenance_active", lambda: False)
+    monkeypatch.setattr(index.qmd_runtime, "health", lambda: {"ok": True})
+    monkeypatch.setattr(index, "_mcp_search", lambda *a: [{
+        "file": f"{index.collection_name(tmp_path)}/decision.md",
+        "title": "decision", "score": 0.9, "snippet": "dedicated runtime"}])
+
+    report = index.search_report("runtime", tmp_path, retrieval_mode="balanced")
+
+    assert report["engine"] == "qmd-mcp"
+    assert report["retrieval_mode"] == "balanced"
+    assert report["degraded"] is False
+    assert report["hits"][0]["rel"] == "decision.md"
+
+
+def test_balanced_cli_fallback_is_explicitly_degraded(tmp_path, monkeypatch):
+    monkeypatch.setattr(index, "qmd_available", lambda: True)
+    monkeypatch.setattr(index.qmd_runtime, "maintenance_active", lambda: False)
+    monkeypatch.setattr(index, "_mcp_search", lambda *a: (_ for _ in ()).throw(
+        RuntimeError("MCP unavailable")))
+    monkeypatch.setattr(index, "_cli_search", lambda *a: [{
+        "file": f"{index.collection_name(tmp_path)}/note.md",
+        "title": "note", "score": 0.7, "snippet": "fallback"}])
+
+    report = index.search_report("fallback", tmp_path)
+
+    assert report["engine"] == "qmd-cli"
+    assert report["degraded"] is True
+    assert report["reason"] == "mcp_failed:RuntimeError"
+
+
+def test_maintenance_forces_direct_scan(tmp_path, monkeypatch):
+    _write(tmp_path, "note", "maintenance fallback survives")
+    monkeypatch.setattr(index.qmd_runtime, "maintenance_active", lambda: True)
+    monkeypatch.setattr(index, "qmd_available", lambda: True)
+    report = index.search_report("fallback", tmp_path)
+    assert report["engine"] == "direct-scan"
+    assert report["reason"] == "maintenance_active"
+
+
 # ----------------------------------------------------------------- ask()
 def test_ask_no_reader(tmp_path, monkeypatch):
     monkeypatch.setattr(index, "_QMD", None)
@@ -215,6 +257,23 @@ def test_resolve_note_subdir_dash_underscore(tmp_path):
     (sub / "john_doe.md").write_text("---\nname: john_doe\n---\nbio", encoding="utf-8")
     got = index._resolve_note(tmp_path, "people/john-doe.md")   # qmd normalized '_'→'-' in a subdir
     assert got is not None and got.name == "john_doe.md"
+
+
+def test_resolve_note_normalized_directory_and_result_rel(tmp_path):
+    sub = tmp_path / "Brands" / "FuckBigTech"
+    sub.mkdir(parents=True)
+    note = sub / "fuckbigtech_canonical_state.md"
+    note.write_text("canonical", encoding="utf-8")
+
+    got = index._resolve_note(tmp_path, "brands/fuckbigtech/fuckbigtech-canonical-state.md")
+    assert got == note.resolve()
+
+    results = index._normalize_qmd_results([{
+        "file": f"{index.collection_name(tmp_path)}/brands/fuckbigtech/fuckbigtech-canonical-state.md",
+        "title": "canonical", "score": 1.0, "snippet": "canonical",
+    }], tmp_path, index.collection_name(tmp_path), "qmd-mcp", "balanced", False, None)
+    assert results[0]["rel"] == "Brands/FuckBigTech/fuckbigtech_canonical_state.md"
+    assert results[0]["path"] == str(note.resolve())
 
 
 def test_relevant_window_respects_budget():
