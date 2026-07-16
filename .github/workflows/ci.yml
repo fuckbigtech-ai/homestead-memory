@@ -73,11 +73,14 @@ jobs:
         run: |
           set -euo pipefail
           start="$(hsm qmd start --json)"
+          printf '%s\n' "$start"
           python -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["pid_owned"] and d["endpoint_healthy"]' <<<"$start"
           test "$(python -c 'import json,sys; print(json.load(sys.stdin)["index"])' <<<"$start")" = "$HSM_QMD_INDEX_PATH"
           status="$(hsm qmd status --json)"
+          printf '%s\n' "$status"
           python -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["pid_alive"] and d["pid_owned"]' <<<"$status"
           stop="$(hsm qmd stop --json)"
+          printf '%s\n' "$stop"
           python -c 'import json,sys; d=json.load(sys.stdin); assert d["stopped"] and not d["pid_alive"] and not d["endpoint_healthy"]' <<<"$stop"
       - name: cleanup
         if: always()

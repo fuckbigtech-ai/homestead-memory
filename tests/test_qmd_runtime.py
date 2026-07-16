@@ -1,5 +1,7 @@
+import os
 from pathlib import Path
 
+from homestead_memory import cli
 from homestead_memory.core import index, qmd_runtime
 
 
@@ -98,6 +100,23 @@ def test_windows_stop_terminates_only_owned_pid(tmp_path, monkeypatch):
     assert terminated == [(42, False)]
 
 
+def test_qmd_stop_returns_success_after_process_is_gone(monkeypatch, capsys):
+    monkeypatch.setattr(
+        qmd_runtime,
+        "stop",
+        lambda: {
+            "ok": False,
+            "pid": None,
+            "pid_alive": False,
+            "endpoint_healthy": False,
+            "stopped": True,
+        },
+    )
+    args = type("Args", (), {"action": "stop", "path": None, "json": True})()
+    assert cli.cmd_qmd(args) == 0
+    assert '"stopped": true' in capsys.readouterr().out
+
+
 def test_find_qmd_skips_incompatible_binary(tmp_path, monkeypatch):
     old = tmp_path / "old" / "qmd"
     new = tmp_path / "new" / "qmd"
@@ -107,7 +126,7 @@ def test_find_qmd_skips_incompatible_binary(tmp_path, monkeypatch):
     new.write_text("new")
     old.chmod(0o755)
     new.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{old.parent}:{new.parent}")
+    monkeypatch.setenv("PATH", f"{old.parent}{os.pathsep}{new.parent}")
     monkeypatch.delenv("HSM_QMD_BIN", raising=False)
     monkeypatch.setattr(index.shutil, "which", lambda name: None)
     monkeypatch.setattr(qmd_runtime, "compatible", lambda path: path == str(new))
