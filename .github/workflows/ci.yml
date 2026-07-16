@@ -50,10 +50,10 @@ jobs:
     name: qmd 2.1 runtime · ubuntu
     runs-on: ubuntu-latest
     env:
-      HSM_QMD_CACHE_DIR: ${{ runner.temp }}/homestead-qmd/cache
-      HSM_QMD_CONFIG_DIR: ${{ runner.temp }}/homestead-qmd/config
-      HSM_QMD_STATE_DIR: ${{ runner.temp }}/homestead-qmd/state
-      HSM_QMD_INDEX_PATH: ${{ runner.temp }}/homestead-qmd/cache/index.sqlite
+      HSM_QMD_CACHE_DIR: /tmp/homestead-qmd-${{ github.run_id }}/cache
+      HSM_QMD_CONFIG_DIR: /tmp/homestead-qmd-${{ github.run_id }}/config
+      HSM_QMD_STATE_DIR: /tmp/homestead-qmd-${{ github.run_id }}/state
+      HSM_QMD_INDEX_PATH: /tmp/homestead-qmd-${{ github.run_id }}/cache/index.sqlite
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
