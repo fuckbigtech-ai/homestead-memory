@@ -12,6 +12,7 @@ Every other memory layer asks you to *hope* it remembers. This one lets you
 
 ```bash
 pip install homestead-memory      # macOS / Linux / Windows (pure Python, zero deps)
+npm install -g @tobilu/qmd@2.1.0 # optional hybrid retrieval runtime
 
 hsm verify --demo
 # ① a clean vault           ✅  MEMORY INTACT — 100/100
@@ -30,6 +31,9 @@ hsm verify --demo
 hsm init   ./my-vault          # scaffold or adopt any markdown folder
 hsm ingest ./my-vault          # index it (hybrid BM25+vector via qmd, optional)
 hsm ask    "what did I decide about X?"
+hsm ask    "what did I decide about X?" ./my-vault --budget 1200 --json
+hsm search "what did I decide?" ./my-vault --retrieval balanced --json
+hsm qmd start                  # persistent loopback runtime; no shared global index
 hsm verify ./my-vault          # the integrity gate — the whole point
 hsm distill ./my-vault         # optional: build the cited, verifiable fact layer
 hsm history <note> --as-of 2026-06-01   # what was true THEN (temporal layer)
@@ -47,6 +51,22 @@ memory.ask("what city is the user in?")
 ```
 
 The local HTTP API is documented in [`docs/openapi.yaml`](docs/openapi.yaml).
+
+### Retrieval profiles
+
+Homestead keeps qmd in dedicated cache and config directories. It never runs
+maintenance against qmd's global index. Every structured result reports `engine`,
+`retrieval_mode`, `degraded`, `reason`, `elapsed_ms`, and `index_age_seconds`.
+
+| profile | behavior | use |
+|---|---|---|
+| `fast` | BM25 only | exact names, paths, and low-latency probes |
+| `balanced` | lexical + vector, no LLM reranker | hooks and normal agent context |
+| `quality` | lexical + vector + reranker | explicit high-value research queries |
+
+The route is persistent qmd MCP, then the dedicated qmd CLI, then a read-only
+direct scan. Run `hsm qmd doctor`, `hsm qmd refresh`, and `hsm qmd status` to inspect
+the runtime without touching any other qmd collection.
 
 ## Memory under the router
 
@@ -227,9 +247,9 @@ experiment instead. No number here is from a harness you can't run yourself.
 ## Design
 
 - **Cross-platform.** Pure Python, stdlib-only core. CI: ubuntu / macos / windows.
-- **Degrades gracefully.** qmd (hybrid retrieval) is an optional dependency; without
-  it, retrieval falls back to a direct scan. Memory survives its index being down —
-  `verify --deep` *tests* that.
+- **Degrades explicitly.** qmd 2.1+ is optional. MCP failure falls back to the
+  dedicated CLI; qmd failure falls back to a read-only scan. Machine-readable output
+  names the engine and reason instead of silently pretending the fast path worked.
 - **Local by default.** The HTTP API binds loopback with bearer auth + DNS-rebind
   protection; the MCP server is stdio (client-spawned). Nothing phones home.
 - **Temporal.** Changelog lines make history queryable: `hsm history note --as-of DATE`.

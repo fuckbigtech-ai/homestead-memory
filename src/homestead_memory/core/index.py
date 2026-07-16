@@ -4,10 +4,10 @@ core.index — retrieval. A thin wrapper over `qmd` (Tobi Lütke's MIT hybrid
 BM25 + vector search), with a dependency-free direct-scan fallback so memory
 survives the index being down.
 
-qmd is an OPTIONAL external dependency (a CLI), never vendored. homestead-memory keeps
-its data in an isolated qmd index (`--index homestead-memory`) so it never touches the
-user's default qmd setup. If qmd isn't installed, `search` degrades to a keyword
-scan over the markdown — retrieval still works, just without hybrid ranking.
+qmd is an OPTIONAL external dependency (a CLI), never vendored. Homestead owns an
+explicit INDEX_PATH and QMD_CONFIG_DIR, so it cannot mutate the user's default qmd
+setup. Retrieval prefers a long-lived loopback MCP process, then the dedicated qmd
+CLI, then a dependency-free scan over the markdown.
 
 `ask()` does parent-document retrieval at read time: qmd finds the right note, we
 resolve its FULL body and hand the reader the query-relevant chunks (via core.chunking)
@@ -23,24 +23,49 @@ import os
 import re
 import shutil
 import subprocess
+import time
+import urllib.error
+import urllib.request
 from datetime import date
 from pathlib import Path
 
 from . import chunking
+from . import qmd_runtime
 from . import store
 from . import telemetry
 from . import tuning
 from . import vault as vaultlib
 
-QMD_INDEX = "homestead-memory"        # isolated index — never the user's default
-_QMD = shutil.which("qmd")
+
+def _find_qmd() -> str | None:
+    """Select a compatible qmd even when an older install appears first on PATH."""
+    override = os.environ.get("HSM_QMD_BIN")
+    candidates: list[str] = [override] if override else []
+    for directory in os.environ.get("PATH", "").split(os.pathsep):
+        if directory:
+            candidates.append(str(Path(directory).expanduser() / "qmd"))
+    candidates.extend(str(path) for path in sorted(
+        (Path.home() / ".nvm/versions/node").glob("*/bin/qmd"), reverse=True))
+    seen: set[str] = set()
+    fallback = shutil.which("qmd")
+    for candidate in candidates:
+        if not candidate or candidate in seen or not os.access(candidate, os.X_OK):
+            continue
+        seen.add(candidate)
+        if qmd_runtime.compatible(candidate):
+            return candidate
+    return fallback
+
+
+_QMD = _find_qmd()
 _WORD = re.compile(r"[a-z0-9]{3,}")
 _DATE_RE = re.compile(r"\b(\d{4}-\d{2}-\d{2})\b")
 _KNOWN_TYPES = {"temporal-reasoning", "knowledge-update", "multi-session", "default"}
+_RETRIEVAL_MODES = {"fast", "balanced", "quality"}
 
 
 def qmd_available() -> bool:
-    return _QMD is not None
+    return qmd_runtime.compatible(_QMD)
 
 
 def collection_name(vault: Path) -> str:
@@ -66,12 +91,13 @@ def _vault_content_hash(vault: Path) -> str:
 
 def _qmd(*args: str, timeout: int = 900) -> subprocess.CompletedProcess:
     return subprocess.run([_QMD, *args], capture_output=True, text=True,
-                          timeout=timeout, stdin=subprocess.DEVNULL)
+                          timeout=timeout, stdin=subprocess.DEVNULL,
+                          env=qmd_runtime.environment(qmd_bin=_QMD))
 
 
 def _collection_exists(name: str) -> bool:
     try:
-        r = _qmd("collection", "list", "--index", QMD_INDEX, timeout=30)
+        r = _qmd("collection", "list", timeout=30)
         return name in (r.stdout or "")
     except Exception:
         return False
@@ -82,17 +108,30 @@ def ingest(vault: Path | str | None = None) -> dict:
     v = vaultlib._resolve(vault)
     if not qmd_available():
         return {"ok": False, "engine": "none",
-                "note": "qmd not installed — `ask` will use the direct-scan fallback. "
-                        "Install qmd for hybrid retrieval: https://github.com/tobi/qmd"}
+                "note": "qmd 2.1+ is required; `ask` is using direct-scan fallback. "
+                        "Install qmd: npm install -g @tobilu/qmd@2.1.0"}
     name = collection_name(v)
-    if _collection_exists(name):
-        _qmd("update", "--index", QMD_INDEX)
-    else:
-        r = _qmd("collection", "add", str(v), "--name", name,
-                 "--mask", "**/*.md", "--index", QMD_INDEX)
-        if r.returncode != 0:
-            _qmd("update", "--index", QMD_INDEX)   # fall back to update if add balked
-    emb = _qmd("embed", "--index", QMD_INDEX)
+    runtime_status = qmd_runtime.status()
+    was_running = runtime_status["ok"]
+    marker = qmd_runtime.ensure_dirs()["maintenance"]
+    marker.write_text(json.dumps({"operation": "ingest", "started_at": time.time()}))
+    if was_running:
+        qmd_runtime.stop()
+    try:
+        if _collection_exists(name):
+            update = _qmd("update")
+        else:
+            update = _qmd("collection", "add", str(v), "--name", name,
+                          "--mask", "**/*.md")
+        if update.returncode != 0:
+            return {"ok": False, "engine": "qmd-cli", "collection": name,
+                    "reason": "qmd_update_failed",
+                    "note": (update.stderr or update.stdout or "").strip()[-1000:]}
+        emb = _qmd("embed", "--max-docs-per-batch", "100", "--max-batch-mb", "64")
+    finally:
+        marker.unlink(missing_ok=True)
+        if was_running:
+            qmd_runtime.start(_QMD)
     if emb.returncode == 0:                # record the content hash ONLY on a clean embed, so
         try:                              # a failed/stale index doesn't suppress index_drift
             state = v / ".hsm"
@@ -109,30 +148,154 @@ def ingest(vault: Path | str | None = None) -> dict:
 def _strip_qmd_uri(file_uri: str, name: str) -> str:
     # "qmd://<collection>/<relpath>" -> "<relpath>"
     prefix = f"qmd://{name}/"
-    return file_uri[len(prefix):] if file_uri.startswith(prefix) else file_uri.replace("qmd://", "")
+    if file_uri.startswith(prefix):
+        return file_uri[len(prefix):]
+    plain = file_uri.replace("qmd://", "", 1)
+    return plain[len(name) + 1:] if plain.startswith(f"{name}/") else plain
 
 
-def search(query: str, vault: Path | str | None = None, k: int = 5) -> list[dict]:
-    """Return ranked passages. qmd hybrid if available, else a direct keyword scan.
-    Each result: {rel, path, score, title, snippet, engine}."""
+def _one_line(query: str) -> str:
+    return re.sub(r"\s+", " ", query).strip()
+
+
+def _index_age_seconds() -> float | None:
+    index_path = qmd_runtime.paths()["index"]
+    try:
+        return round(max(0.0, time.time() - index_path.stat().st_mtime), 1)
+    except OSError:
+        return None
+
+
+def _request_json(url: str, payload: dict, timeout: float,
+                  session: str | None = None) -> tuple[dict, str | None]:
+    headers = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream"}
+    if session:
+        headers["Mcp-Session-Id"] = session
+    request = urllib.request.Request(url, data=json.dumps(payload).encode(), headers=headers,
+                                     method="POST")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        raw = response.read().decode("utf-8")
+        return (json.loads(raw) if raw else {}), response.headers.get("Mcp-Session-Id") or session
+
+
+def _mcp_search(query: str, name: str, k: int, mode: str) -> list[dict]:
+    """Run one stateless client session against qmd's long-lived MCP store."""
+    timeout = 120.0 if mode == "quality" else 3.5
+    init = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-03-26", "capabilities": {},
+        "clientInfo": {"name": "homestead-memory", "version": "0.2.1"}}}
+    session = None
+    try:
+        _, session = _request_json(qmd_runtime.endpoint(), init, timeout)
+        if not session:
+            raise RuntimeError("qmd MCP did not establish a session")
+        _request_json(qmd_runtime.endpoint(),
+                      {"jsonrpc": "2.0", "method": "notifications/initialized"},
+                      timeout, session)
+        clean = _one_line(query)
+        arguments = {
+            "searches": [{"type": "lex", "query": clean}, {"type": "vec", "query": clean}],
+            "limit": k, "collections": [name], "rerank": mode == "quality",
+        }
+        result, _ = _request_json(qmd_runtime.endpoint(), {
+            "jsonrpc": "2.0", "id": 2, "method": "tools/call",
+            "params": {"name": "query", "arguments": arguments}}, timeout, session)
+        if "error" in result:
+            raise RuntimeError(result["error"].get("message", "qmd MCP query failed"))
+        return result.get("result", {}).get("structuredContent", {}).get("results", [])
+    finally:
+        if session:
+            request = urllib.request.Request(
+                qmd_runtime.endpoint(), headers={"Mcp-Session-Id": session}, method="DELETE")
+            try:
+                urllib.request.urlopen(request, timeout=1).close()
+            except (OSError, urllib.error.URLError):
+                pass
+
+
+def _cli_search(query: str, name: str, k: int, mode: str) -> list[dict]:
+    clean = _one_line(query)
+    if mode == "fast":
+        args = ["search", clean]
+        timeout = 5
+    else:
+        args = ["query", f"lex: {clean}\nvec: {clean}"]
+        if mode == "balanced":
+            args.append("--no-rerank")
+        timeout = 120 if mode == "quality" else 5
+    run = _qmd(*args, "-c", name, "--json", "-n", str(k), timeout=timeout)
+    if run.returncode != 0:
+        raise RuntimeError((run.stderr or run.stdout or "qmd failed").strip()[-1000:])
+    return json.loads(run.stdout) if run.stdout.strip().startswith("[") else []
+
+
+def _normalize_qmd_results(data: list[dict], vault: Path, name: str, engine: str,
+                           mode: str, degraded: bool, reason: str | None) -> list[dict]:
+    out = []
+    for item in data:
+        rel = _strip_qmd_uri(str(item.get("file", "")), name)
+        resolved = _resolve_note(vault, rel)
+        if resolved is not None:
+            rel = resolved.relative_to(vault.resolve()).as_posix()
+        out.append({"rel": rel, "path": str(resolved or (vault / rel)), "score": item.get("score"),
+                    "title": item.get("title", ""), "snippet": item.get("snippet", ""),
+                    "engine": engine, "retrieval_mode": mode, "degraded": degraded,
+                    "reason": reason})
+    return out
+
+
+def search_report(query: str, vault: Path | str | None = None, k: int = 5,
+                  retrieval_mode: str = "balanced") -> dict:
+    """Return hits plus explicit engine, latency, index age, and degradation state."""
+    started = time.monotonic()
     v = vaultlib._resolve(vault)
-    if qmd_available():
+    mode = retrieval_mode if retrieval_mode in _RETRIEVAL_MODES else "balanced"
+    name = collection_name(v)
+    errors: list[str] = []
+    if qmd_runtime.maintenance_active():
+        errors.append("maintenance_active")
+    elif qmd_available():
+        if mode != "fast":
+            try:
+                data = _mcp_search(query, name, k, mode)
+                hits = _normalize_qmd_results(data, v, name, "qmd-mcp", mode, False, None)
+                if hits:
+                    return _search_result(hits, "qmd-mcp", mode, False, None, started)
+                errors.append("mcp_no_hits")
+            except Exception as exc:
+                errors.append(f"mcp_failed:{type(exc).__name__}")
         name = collection_name(v)
         try:
-            r = _qmd("query", query, "-c", name, "--index", QMD_INDEX,
-                     "--json", "-n", str(k), timeout=120)
-            data = json.loads(r.stdout) if r.stdout.strip().startswith("[") else []
-            out = []
-            for d in data:
-                rel = _strip_qmd_uri(d.get("file", ""), name)
-                out.append({"rel": rel, "path": str(v / rel), "score": d.get("score"),
-                            "title": d.get("title", ""), "snippet": d.get("snippet", ""),
-                            "engine": "qmd"})
-            if out:
-                return out
-        except Exception:
-            pass  # fall through to direct scan
-    return _direct_scan(query, v, k)
+            data = _cli_search(query, name, k, mode)
+            degraded = bool(errors)
+            reason = ";".join(errors) or None
+            hits = _normalize_qmd_results(data, v, name, "qmd-cli", mode, degraded, reason)
+            if hits:
+                return _search_result(hits, "qmd-cli", mode, degraded, reason, started)
+            errors.append("cli_no_hits")
+        except Exception as exc:
+            errors.append(f"cli_failed:{type(exc).__name__}")
+    else:
+        errors.append("qmd_2_1_unavailable")
+    reason = ";".join(errors)
+    hits = _direct_scan(query, v, k)
+    for hit in hits:
+        hit.update({"retrieval_mode": mode, "degraded": True, "reason": reason})
+    return _search_result(hits, "direct-scan", mode, True, reason, started)
+
+
+def _search_result(hits: list[dict], engine: str, mode: str, degraded: bool,
+                   reason: str | None, started: float) -> dict:
+    return {"hits": hits, "engine": engine, "retrieval_mode": mode,
+            "degraded": degraded, "reason": reason,
+            "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+            "index_age_seconds": _index_age_seconds()}
+
+
+def search(query: str, vault: Path | str | None = None, k: int = 5,
+           retrieval_mode: str = "balanced") -> list[dict]:
+    """Compatibility surface returning ranked passages only."""
+    return search_report(query, vault, k, retrieval_mode)["hits"]
 
 
 def _direct_scan(query: str, vault: Path, k: int) -> list[dict]:
@@ -166,6 +329,9 @@ def _resolve_note(vault: Path, rel: str) -> Path | None:
     if not rel:
         return None
     root = vault.resolve()
+    relp = Path(rel)
+    if relp.is_absolute() or ".." in relp.parts:
+        return None
 
     def _within(f: Path) -> Path | None:
         try:
@@ -174,23 +340,36 @@ def _resolve_note(vault: Path, rel: str) -> Path | None:
             return None
         return r if (r.is_file() and root in r.parents) else None
 
-    hit = _within(vault / rel)
+    hit = _within(vault / relp)
     if hit:
         return hit
-    relp = Path(rel)
-    base = vault / relp.parent
+
+    def _key(value: str) -> str:
+        return value.casefold().replace("_", "-")
+
+    base = root
+    for part in relp.parent.parts:
+        try:
+            directories = [entry for entry in base.iterdir() if entry.is_dir()]
+        except OSError:
+            return None
+        match = next((entry for entry in directories if entry.name == part), None)
+        if match is None:
+            match = next((entry for entry in directories if _key(entry.name) == _key(part)), None)
+        if match is None:
+            return None
+        base = match
+
     stem = relp.stem
-    for cand in (stem.replace("-", "_"), stem.replace("_", "-")):
-        hit = _within(base / f"{cand}.md")
-        if hit:
-            return hit
-    if base.is_dir():
-        key = stem.replace("_", "-")
-        for q in base.glob("*.md"):
-            if q.stem.replace("_", "-") == key:
-                hit = _within(q)
+    try:
+        for candidate in base.iterdir():
+            if candidate.is_file() and candidate.suffix.casefold() == ".md" and \
+                    _key(candidate.stem) == _key(stem):
+                hit = _within(candidate)
                 if hit:
                     return hit
+    except OSError:
+        return None
     return None
 
 
@@ -332,7 +511,8 @@ def _est_tokens(text: str) -> int:
 
 
 def ask(query: str, vault: Path | str | None = None, k: int | None = None,
-        question_type: str | None = None, token_budget: int = 6000) -> dict:
+        question_type: str | None = None, token_budget: int = 6000,
+        retrieval_mode: str = "balanced") -> dict:
     """Retrieve, then synthesize an answer with a reader if one is configured
     (env HSM_READER, a shell command that reads the prompt on stdin); otherwise return
     the assembled context as the answer material.
@@ -344,7 +524,8 @@ def ask(query: str, vault: Path | str | None = None, k: int | None = None,
     v = vaultlib._resolve(vault)
     if k is None:                          # unset → the tuned breadth for THIS vault, else 5
         k = tuning.tuned_k(v)              # validated + clamped (a hand-edited tuning.json is safe)
-    hits = search(query, v, k)
+    retrieval = search_report(query, v, k, retrieval_mode)
+    hits = retrieval["hits"]
     qtype = question_type or classify_question(query)
     if qtype not in _KNOWN_TYPES:      # any bad input (CLI/API/MCP) → safe default
         qtype = "default"
@@ -379,7 +560,15 @@ def ask(query: str, vault: Path | str | None = None, k: int | None = None,
                       "question_type": qtype, "k": k, "n_hits": len(hits),
                       "answered": answer is not None,
                       "top": hits[0]["rel"] if hits else None,
-                      "context_tokens": _est_tokens(context)})
+                      "context_tokens": _est_tokens(context),
+                      "engine": retrieval["engine"],
+                      "retrieval_mode": retrieval["retrieval_mode"],
+                      "degraded": retrieval["degraded"],
+                      "elapsed_ms": retrieval["elapsed_ms"]})
     return {"query": query, "hits": hits, "context": context, "answer": answer,
             "question_type": qtype, "context_tokens": _est_tokens(context),
-            "engine": hits[0]["engine"] if hits else "none"}
+            "engine": retrieval["engine"],
+            "retrieval_mode": retrieval["retrieval_mode"],
+            "degraded": retrieval["degraded"], "reason": retrieval["reason"],
+            "elapsed_ms": retrieval["elapsed_ms"],
+            "index_age_seconds": retrieval["index_age_seconds"]}

@@ -1,5 +1,33 @@
 # LongMemEval — first results (honest log)
 
+## Runtime reliability hotfix (v0.2.1, 2026-07-16)
+
+The published 85% recall number below is unchanged; this release fixes the runtime
+around it. Homestead now owns explicit qmd database and config paths, uses a persistent
+loopback MCP process for warm queries, and reports every fallback. The former
+`--index homestead-memory` invocation was unsafe on qmd 1.0 because that CLI parsed the
+index name as boolean `true`, mixing unrelated collections into `true.sqlite`.
+
+The three v0.2.1 profiles are `fast` (BM25), `balanced` (lexical + vector without LLM
+reranking), and `quality` (reranked). The LongMemEval quality result is not relabelled
+as a new benchmark run.
+
+Local runtime sample on an Apple M3 Pro after indexing the canonical vault:
+
+- Dedicated database: **5,108 documents / 14,876 vectors / 115.7 MB**; zero pending
+  embeddings.
+- Balanced MCP retrieval: **~102 ms median internal latency and ~193 ms warm p95**
+  across nine warm queries. The outer vault wrapper measured ~425 ms median and
+  ~651 ms warm p95 wall time.
+- Cold balanced outlier: **1.323 s internal / 1.657 s wall** while models and pages
+  warmed. A later saturated-host probe correctly degraded to the dedicated CLI and
+  reported that fallback instead of pretending it was an MCP success.
+- Quality profile smoke test: **8.761 s internal / 9.413 s wall** with reranking.
+
+These are workstation latency samples, not LongMemEval scores. Host pressure can move
+them materially; the reliability contract is the bounded MCP -> dedicated CLI ->
+direct-scan chain plus explicit `engine`, `degraded`, `reason`, and index-age metadata.
+
 Status: **harness validated; no publishable headline number yet.** These are early,
 noise-dominated runs on a small sample with a small local reader. Recorded here in
 full because building in public means showing the messy middle, not just a win.
