@@ -45,3 +45,41 @@ jobs:
           else
             echo "demo caught the rot (nonzero exit) ✓"
           fi
+
+  qmd-runtime:
+    name: qmd 2.1 runtime · ubuntu
+    runs-on: ubuntu-latest
+    env:
+      HSM_QMD_CACHE_DIR: ${{ runner.temp }}/homestead-qmd/cache
+      HSM_QMD_CONFIG_DIR: ${{ runner.temp }}/homestead-qmd/config
+      HSM_QMD_STATE_DIR: ${{ runner.temp }}/homestead-qmd/state
+      HSM_QMD_INDEX_PATH: ${{ runner.temp }}/homestead-qmd/cache/index.sqlite
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: install package and pinned qmd
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          npm install --global @tobilu/qmd@2.1.0
+          qmd --version
+      - name: exercise real MCP lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          start="$(hsm qmd start --json)"
+          python -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["pid_owned"] and d["endpoint_healthy"]' <<<"$start"
+          test "$(python -c 'import json,sys; print(json.load(sys.stdin)["index"])' <<<"$start")" = "$HSM_QMD_INDEX_PATH"
+          status="$(hsm qmd status --json)"
+          python -c 'import json,sys; d=json.load(sys.stdin); assert d["ok"] and d["pid_alive"] and d["pid_owned"]' <<<"$status"
+          stop="$(hsm qmd stop --json)"
+          python -c 'import json,sys; d=json.load(sys.stdin); assert d["stopped"] and not d["pid_alive"] and not d["endpoint_healthy"]' <<<"$stop"
+      - name: cleanup
+        if: always()
+        shell: bash
+        run: hsm qmd stop --json || true

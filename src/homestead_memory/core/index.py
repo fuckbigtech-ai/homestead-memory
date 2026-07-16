@@ -41,20 +41,22 @@ def _find_qmd() -> str | None:
     """Select a compatible qmd even when an older install appears first on PATH."""
     override = os.environ.get("HSM_QMD_BIN")
     candidates: list[str] = [override] if override else []
+    discovered = shutil.which("qmd")
+    if discovered:
+        candidates.append(discovered)
     for directory in os.environ.get("PATH", "").split(os.pathsep):
         if directory:
             candidates.append(str(Path(directory).expanduser() / "qmd"))
     candidates.extend(str(path) for path in sorted(
         (Path.home() / ".nvm/versions/node").glob("*/bin/qmd"), reverse=True))
     seen: set[str] = set()
-    fallback = shutil.which("qmd")
     for candidate in candidates:
         if not candidate or candidate in seen or not os.access(candidate, os.X_OK):
             continue
         seen.add(candidate)
         if qmd_runtime.compatible(candidate):
             return candidate
-    return fallback
+    return None
 
 
 _QMD = _find_qmd()
@@ -183,7 +185,7 @@ def _mcp_search(query: str, name: str, k: int, mode: str) -> list[dict]:
     timeout = 120.0 if mode == "quality" else 3.5
     init = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
         "protocolVersion": "2025-03-26", "capabilities": {},
-        "clientInfo": {"name": "homestead-memory", "version": "0.2.1"}}}
+        "clientInfo": {"name": "homestead-memory", "version": "0.2.2"}}}
     session = None
     try:
         _, session = _request_json(qmd_runtime.endpoint(), init, timeout)
