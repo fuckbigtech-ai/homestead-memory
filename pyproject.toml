@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "homestead-memory"
-version = "0.2.1"
+version = "0.2.2"
 description = "Verifiable, local-first AI memory that catches rot, tampering, and poisoning. Plain markdown you own."
 readme = "README.md"
 license = { text = "MIT" }
