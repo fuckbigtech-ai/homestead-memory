@@ -169,6 +169,12 @@ def cmd_qmd(args) -> int:
     else:
         for key, value in report.items():
             print(f"{key}: {value}")
+    if action == "stop":
+        stopped_or_absent = bool(
+            report.get("stopped")
+            or (not report.get("pid_alive") and not report.get("reason"))
+        )
+        return 0 if stopped_or_absent else 1
     return 0 if report.get("ok") else 1
 
 

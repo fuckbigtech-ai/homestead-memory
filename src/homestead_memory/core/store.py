@@ -11,6 +11,21 @@ from pathlib import Path
 from . import provenance
 
 
+def _unlink_lock(path: Path, attempts: int = 50) -> bool:
+    """Remove a lock despite short Windows reader-handle races."""
+    for attempt in range(attempts):
+        try:
+            os.unlink(path)
+            return True
+        except FileNotFoundError:
+            return True
+        except PermissionError:
+            if os.name != "nt" or attempt == attempts - 1:
+                raise
+            time.sleep(0.01)
+    return False
+
+
 def atomic_write(path: Path | str, text: str) -> None:
     """Write text via fsynced same-directory temp file + atomic replace."""
     p = Path(path)
@@ -77,8 +92,7 @@ def vault_lock(vault: Path | str, timeout: float = 10.0, stale: float = 120.0):
             except BaseException:
                 with contextlib.suppress(Exception):
                     os.close(fd)
-                with contextlib.suppress(FileNotFoundError):
-                    os.unlink(lockpath)
+                _unlink_lock(lockpath)
                 raise
             acquired = True
             break
@@ -110,8 +124,7 @@ def vault_lock(vault: Path | str, timeout: float = 10.0, stale: float = 120.0):
                 except OSError:
                     alive = True
                 if not alive:
-                    with contextlib.suppress(FileNotFoundError):
-                        os.unlink(lockpath)
+                    _unlink_lock(lockpath)
                     continue
                 if time.monotonic() >= deadline:
                     raise TimeoutError(f"timed out waiting for vault lock: {lockpath}")
@@ -123,8 +136,7 @@ def vault_lock(vault: Path | str, timeout: float = 10.0, stale: float = 120.0):
             except FileNotFoundError:
                 continue
             if age > stale:
-                with contextlib.suppress(FileNotFoundError):
-                    os.unlink(lockpath)
+                _unlink_lock(lockpath)
                 continue
             if time.monotonic() >= deadline:
                 raise TimeoutError(f"timed out waiting for vault lock: {lockpath}")
@@ -136,6 +148,6 @@ def vault_lock(vault: Path | str, timeout: float = 10.0, stale: float = 120.0):
         if acquired:
             try:
                 if lockpath.read_text(errors="replace") == owner:
-                    os.unlink(lockpath)
+                    _unlink_lock(lockpath)
             except FileNotFoundError:
                 pass
