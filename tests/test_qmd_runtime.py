@@ -38,6 +38,20 @@ def test_status_does_not_claim_stale_pid_is_healthy(tmp_path, monkeypatch):
     assert report["pid_alive"] is False
 
 
+def test_environment_aligns_xdg_paths_with_homestead(tmp_path, monkeypatch):
+    monkeypatch.setenv("HSM_QMD_CACHE_DIR", str(tmp_path / "cache" / "qmd"))
+    monkeypatch.setenv("HSM_QMD_CONFIG_DIR", str(tmp_path / "config" / "qmd"))
+    monkeypatch.setenv("HSM_QMD_STATE_DIR", str(tmp_path / "state" / "qmd"))
+    env = qmd_runtime.environment({"PATH": "/bin"})
+    assert Path(env["INDEX_PATH"]) == (tmp_path / "cache" / "qmd" / "index.sqlite")
+    assert Path(env["QMD_CONFIG_DIR"]) == (tmp_path / "config" / "qmd")
+    # QMD itself appends its qmd leaf to XDG_CACHE_HOME; the parent is
+    # intentional and verified against qmd's runtime implementation.
+    assert Path(env["XDG_CACHE_HOME"]) == (tmp_path / "cache")
+    assert Path(env["XDG_CONFIG_HOME"]) == (tmp_path / "config")
+    assert Path(env["XDG_STATE_HOME"]) == (tmp_path / "state")
+
+
 def test_stop_refuses_unowned_pid(tmp_path, monkeypatch):
     monkeypatch.setenv("HSM_QMD_STATE_DIR", str(tmp_path / "state"))
     monkeypatch.setenv("HSM_QMD_CACHE_DIR", str(tmp_path / "cache"))

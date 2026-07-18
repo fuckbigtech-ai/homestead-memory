@@ -1,0 +1,19 @@
+[Unit]
+Description=Homestead incremental QMD refresh
+After=homestead-qmd.service
+
+[Service]
+Type=oneshot
+Environment=HSM_VAULT=%h/.claude/projects/-Users-humzaahmad/memory
+Environment=HSM_QMD_CACHE_DIR=%h/.cache/homestead-memory/qmd
+Environment=HSM_QMD_CONFIG_DIR=%h/.config/homestead-memory/qmd
+Environment=HSM_QMD_STATE_DIR=%h/.local/state/homestead-memory/qmd
+Environment=XDG_CACHE_HOME=%h/.cache/homestead-memory
+Environment=XDG_CONFIG_HOME=%h/.config/homestead-memory
+Environment=XDG_STATE_HOME=%h/.local/state/homestead-memory
+ExecStart=%h/.local/bin/hsm qmd refresh %h/.claude/projects/-Users-humzaahmad/memory --json
+TimeoutStartSec=6h
+KillMode=control-group
+Nice=15
+IOSchedulingClass=idle
+

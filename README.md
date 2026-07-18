@@ -68,6 +68,15 @@ The route is persistent qmd MCP, then the dedicated qmd CLI, then a read-only
 direct scan. Run `hsm qmd doctor`, `hsm qmd refresh`, and `hsm qmd status` to inspect
 the runtime without touching any other qmd collection.
 
+Refresh is explicit and incremental. It writes an atomic checkpoint beneath
+`.hsm/refresh-state.json`, refuses foreign or unhealthy QMD runtimes, emits a
+live heartbeat while QMD works, and commits the vault fingerprint only after
+embedding reaches zero pending vectors. Reads never trigger an implicit
+refresh; if QMD is unavailable, retrieval falls back to a read-only scan and
+reports the degraded engine and reason.
+
+For a Linux/systemd reference deployment, see `deploy/reference/`.
+
 ## Memory under the router
 
 Routers can swap the served model while homestead-memory keeps the same vault

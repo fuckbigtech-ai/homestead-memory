@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic Homestead incremental refresh
+
+[Timer]
+OnUnitActiveSec=30min
+Persistent=true
+Unit=homestead-refresh.service
+
+[Install]
+WantedBy=timers.target

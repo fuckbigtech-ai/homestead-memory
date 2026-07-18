@@ -1,0 +1,22 @@
+[Unit]
+Description=Homestead dedicated QMD runtime
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=HSM_VAULT=%h/.claude/projects/-Users-humzaahmad/memory
+Environment=HSM_QMD_CACHE_DIR=%h/.cache/homestead-memory/qmd
+Environment=HSM_QMD_CONFIG_DIR=%h/.config/homestead-memory/qmd
+Environment=HSM_QMD_STATE_DIR=%h/.local/state/homestead-memory/qmd
+Environment=XDG_CACHE_HOME=%h/.cache/homestead-memory
+Environment=XDG_CONFIG_HOME=%h/.config/homestead-memory
+Environment=XDG_STATE_HOME=%h/.local/state/homestead-memory
+ExecStart=%h/.local/bin/hsm qmd start
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

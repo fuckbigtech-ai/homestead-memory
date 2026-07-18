@@ -49,6 +49,12 @@ def environment(base: dict[str, str] | None = None, qmd_bin: str | None = None) 
     env = dict(os.environ if base is None else base)
     env["INDEX_PATH"] = str(p["index"])
     env["QMD_CONFIG_DIR"] = str(p["config"])
+    # QMD uses XDG paths for its index/model state. Keep those aligned with
+    # Homestead's dedicated paths so CLI and MCP clients cannot silently fall
+    # back to ~/.cache/qmd or ~/.config/qmd.
+    env["XDG_CACHE_HOME"] = str(p["cache"].parent)
+    env["XDG_CONFIG_HOME"] = str(p["config"].parent)
+    env["XDG_STATE_HOME"] = str(p["state"].parent)
     if qmd_bin:
         # Keep the symlink's bin directory. Resolving it jumps into node_modules,
         # dropping the Node runtime that compiled qmd's native extensions.
