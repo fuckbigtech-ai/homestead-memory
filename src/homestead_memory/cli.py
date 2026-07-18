@@ -163,7 +163,8 @@ def cmd_qmd(args) -> int:
         root = vaultlib._resolve(args.path)
         report = qmd_runtime.doctor(index._QMD, index.collection_name(root))
     else:
-        report = index.ingest(args.path)
+        from .core import refresh
+        report = refresh.refresh(args.path)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, default=str))
     else:

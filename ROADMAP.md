@@ -1,5 +1,13 @@
 # Roadmap
 
+## v0.2.3 — freshness and reproducible deployment
+
+- [x] Incremental QMD refresh with atomic checkpoint and source fingerprint.
+- [x] Runtime ownership checks, watchdog heartbeat, and zero-pending gate.
+- [x] Explicit XDG/QMD path isolation and Linux reference units.
+- [ ] Cross-platform failure-injection matrix and public retrieval benchmark.
+- [ ] Publish the package and reference deployment from the same tagged source.
+
 Building in public. **Stop renting your mind.**
 
 ## v0.1 — the core (shipped)
