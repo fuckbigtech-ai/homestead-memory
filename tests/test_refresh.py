@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from homestead_memory.core import refresh
 
 
 def test_refresh_defers_when_lock_is_held(tmp_path, monkeypatch):
+    if os.name == "nt":
+        import pytest
+        pytest.skip("fcntl lock contention is POSIX-specific; Windows uses O_EXCL")
     vault = tmp_path / "vault"
     vault.mkdir()
     (vault / "note.md").write_text("# note\n", encoding="utf-8")
@@ -43,4 +47,3 @@ def test_failed_refresh_does_not_commit_fingerprint(tmp_path, monkeypatch):
     assert not (state / "vault-fingerprint.sha256").exists()
     saved = json.loads((state / "refresh-state.json").read_text())
     assert saved["fresh"] is False
-
