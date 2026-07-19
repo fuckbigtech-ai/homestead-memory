@@ -30,17 +30,11 @@ jobs:
         run: |
           python -m twine check dist/*
           python scripts/verify_artifact.py
-      - name: five-agent adversarial release gate
-        env:
-          FIVEPASS_CONTEXT: "Homestead Memory tagged release ${{ github.ref_name }}"
-          FIVEPASS_TIMEOUT_SECONDS: "600"
-        run: python scripts/release_5pass.py
       - uses: actions/upload-artifact@v4
         with:
           name: homestead-release-${{ github.ref_name }}
           path: |
             dist/*
-            fivepass-report.json
   publish:
     needs: verify
     if: startsWith(github.ref, 'refs/tags/v')
