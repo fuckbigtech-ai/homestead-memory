@@ -47,11 +47,9 @@ jobs:
           fi
       - name: reproducible wheel build
         run: |
-          rm -rf dist
+          python -c "import shutil; shutil.rmtree('dist', ignore_errors=True)"
           python -m pip wheel . --no-deps --wheel-dir dist
-          python -m venv /tmp/hsm-wheel-smoke
-          /tmp/hsm-wheel-smoke/bin/pip install --no-deps dist/*.whl
-          /tmp/hsm-wheel-smoke/bin/hsm --version
+          python scripts/wheel_smoke.py
 
   qmd-runtime:
     name: qmd 2.1 runtime · ubuntu
