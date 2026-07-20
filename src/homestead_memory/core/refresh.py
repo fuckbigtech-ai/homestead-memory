@@ -77,7 +77,8 @@ def _fingerprint(vault: Path) -> str:
 
 
 def _state_paths(vault: Path, state_dir: Path | str | None) -> tuple[Path, Path]:
-    root = Path(state_dir).expanduser() if state_dir else vault / ".hsm"
+    configured = state_dir or os.environ.get("HSM_REFRESH_STATE_DIR")
+    root = Path(configured).expanduser() if configured else vault / ".hsm"
     return root / "refresh-state.json", root / "refresh.lock"
 
 
