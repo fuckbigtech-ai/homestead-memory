@@ -20,6 +20,12 @@ classifiers = [
 # invoked as a subprocess; the store degrades to a direct markdown scan without it.
 dependencies = []
 
+[project.urls]
+Homepage = "https://fuckbigtech.ai/lab"
+Repository = "https://github.com/fuckbigtech-ai/homestead-memory"
+Issues = "https://github.com/fuckbigtech-ai/homestead-memory/issues"
+Changelog = "https://github.com/fuckbigtech-ai/homestead-memory/releases"
+
 [project.optional-dependencies]
 api = ["fastapi>=0.110", "uvicorn>=0.27"]
 sign = ["cryptography>=42"]

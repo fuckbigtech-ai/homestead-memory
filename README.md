@@ -1,5 +1,10 @@
 # homestead-memory
 
+[![PyPI](https://img.shields.io/pypi/v/homestead-memory)](https://pypi.org/project/homestead-memory/)
+[![CI](https://github.com/fuckbigtech-ai/homestead-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/fuckbigtech-ai/homestead-memory/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/pypi/pyversions/homestead-memory)](https://pypi.org/project/homestead-memory/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **Stop renting your mind.**
 
 Local-first, verifiable AI memory. Your notes stay plain markdown you can read,
