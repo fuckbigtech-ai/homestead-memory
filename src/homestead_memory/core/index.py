@@ -185,7 +185,7 @@ def _mcp_search(query: str, name: str, k: int, mode: str) -> list[dict]:
     timeout = 120.0 if mode == "quality" else 3.5
     init = {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
         "protocolVersion": "2025-03-26", "capabilities": {},
-        "clientInfo": {"name": "homestead-memory", "version": "0.2.2"}}}
+        "clientInfo": {"name": "homestead-memory", "version": "0.2.4"}}}
     session = None
     try:
         _, session = _request_json(qmd_runtime.endpoint(), init, timeout)
