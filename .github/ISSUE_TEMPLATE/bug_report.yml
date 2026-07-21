@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in homestead-memory does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the report. Please do not file security problems here — use the Security tab instead.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `hsm --version` (or the installed package version).
+      placeholder: "0.2.4"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      placeholder: "3.12"
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The exact commands. A minimal vault or fixture helps.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output
+      description: Relevant CLI output. Include `hsm verify --json` when the issue is about integrity.
+      render: shell

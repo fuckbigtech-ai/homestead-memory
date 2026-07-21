@@ -1,0 +1,9 @@
+extends: existence
+message: "Reference docs avoid the marketing phrase '%s' (DOCS_STYLE.md). Use plain wording, or wrap a brand aside in <!-- vale off --> / <!-- vale on -->."
+level: error
+ignorecase: true
+tokens:
+  - stop renting your mind
+  - own your mind
+  - phones home
+  - table stakes

@@ -1,0 +1,6 @@
+extends: existence
+message: "Long sentence (25+ words). Split it, or shorten it (DOCS_STYLE.md)."
+level: warning
+scope: sentence
+tokens:
+  - '(\S+\s+){25,}\S+'

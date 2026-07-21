@@ -19,3 +19,9 @@ fivepass-report.json
 # stray export bundles
 *.tar.gz
 tmp*/
+
+# Vale: synced third-party style packages (fetched by 'vale sync' from .vale.ini)
+styles/*/
+!styles/Homestead/
+!styles/Homestead/**
+artifact-integrity.json

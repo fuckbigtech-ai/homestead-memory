@@ -13,13 +13,23 @@ from pathlib import Path
 SECRET = re.compile(r"(sk-[A-Za-z0-9_-]{16,}|ghp_[A-Za-z0-9]{20,}|BEGIN (?:RSA |OPENSSH )?PRIVATE KEY)")
 
 
+def _project_version() -> str:
+    """Read the version from pyproject.toml so the guard needs no manual edit per release."""
+    text = Path("pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'(?m)^version\s*=\s*"([^"]+)"', text)
+    if not match:
+        print("could not read version from pyproject.toml", file=sys.stderr)
+        raise SystemExit(2)
+    return match.group(1)
+
+
 def main() -> int:
     wheels = sorted(Path("dist").glob("*.whl"))
     if len(wheels) != 1:
         print(f"expected exactly one wheel, found {len(wheels)}", file=sys.stderr)
         return 2
     wheel = wheels[0]
-    expected = "0.2.4"
+    expected = _project_version()
     if f"-{expected}-" not in wheel.name:
         print(f"wheel version mismatch: {wheel.name}", file=sys.stderr)
         return 2
@@ -33,7 +43,9 @@ def main() -> int:
                     print(f"possible secret in wheel member: {name}", file=sys.stderr)
                     return 1
     digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
-    Path("dist/artifact-integrity.json").write_text(
+    # Write the integrity record OUTSIDE dist/ — anything left in dist/ is treated
+    # as a distribution by the PyPI publish step and fails the upload.
+    Path("artifact-integrity.json").write_text(
         json.dumps({"wheel": wheel.name, "sha256": digest, "members": names}, indent=2) + "\n",
         encoding="utf-8",
     )

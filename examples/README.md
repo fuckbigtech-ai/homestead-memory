@@ -1,6 +1,6 @@
 # RotBench fixtures
 
-`fixtures.example.json` is a tiny golden-recall fixture file for `hsm verify --deep`.
+`fixtures.example.json` is a small golden-recall fixture file for `hsm verify --deep`.
 In a real vault, put the file at:
 
 ```text

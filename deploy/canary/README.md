@@ -2,9 +2,9 @@
 
 The canary runs the release wheel against a separate QMD cache, config, state,
 and collection. It reads the canonical vault but never mutates the production
-collection. Promotion is allowed only after the external 24-hour health gate
-passes. Keep `HSM_CANARY_*` paths outside production paths.
+collection. Promote only after the external 24-hour health gate passes. Keep
+`HSM_CANARY_*` paths outside production paths.
 
-The deployment runner must stop the refresh timer during promotion, retain the
-previous release directory, and make rollback a symlink switch followed by
-QMD restart and doctor/refresh/retrieval checks.
+During promotion, the deployment runner stops the refresh timer and keeps the
+previous release directory. Rollback is a symlink switch, then a QMD restart and
+the doctor, refresh, and retrieval checks.
