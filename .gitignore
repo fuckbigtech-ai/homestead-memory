@@ -24,3 +24,4 @@ tmp*/
 styles/*/
 !styles/Homestead/
 !styles/Homestead/**
+artifact-integrity.json

@@ -43,7 +43,9 @@ def main() -> int:
                     print(f"possible secret in wheel member: {name}", file=sys.stderr)
                     return 1
     digest = hashlib.sha256(wheel.read_bytes()).hexdigest()
-    Path("dist/artifact-integrity.json").write_text(
+    # Write the integrity record OUTSIDE dist/ — anything left in dist/ is treated
+    # as a distribution by the PyPI publish step and fails the upload.
+    Path("artifact-integrity.json").write_text(
         json.dumps({"wheel": wheel.name, "sha256": digest, "members": names}, indent=2) + "\n",
         encoding="utf-8",
     )
