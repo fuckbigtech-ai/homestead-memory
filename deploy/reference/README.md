@@ -14,4 +14,6 @@ systemctl --user enable --now homestead-qmd.service homestead-refresh.timer
 
 The refresh service uses Homestead's explicit QMD cache/config/state paths,
 keeps the vault read-only, and records checkpoint/freshness state beneath the
-vault's `.hsm` directory. It does not touch a user's global QMD index.
+configured writable `HSM_REFRESH_STATE_DIR` (or the normal writable vault
+`.hsm` directory when no override is needed). It does not touch a user's
+global QMD index.
