@@ -18,20 +18,23 @@ on:
 permissions:
   contents: read
 
+env:
+  VALE_VERSION: "3.15.1"
+
 jobs:
   vale:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
-      - name: Vale (reference-doc clarity standard)
-        uses: errata-ai/vale-action@v2
-        with:
-          files: "docs benchmarks/README.md benchmarks/ROTBENCH.md deploy examples SECURITY_RELEASE.md"
-          fail_on_error: true
-          filter_mode: nofilter
-          reporter: github-check
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Vale
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sL "https://github.com/errata-ai/vale/releases/download/v${VALE_VERSION}/vale_${VALE_VERSION}_Linux_64-bit.tar.gz" \
+            | tar -xz -C "$HOME/.local/bin" vale
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Sync styles
+        run: vale sync
+      - name: Lint reference docs (fail on errors only; warnings are advisory)
+        run: |
+          vale --minAlertLevel=error \
+            docs benchmarks/README.md benchmarks/ROTBENCH.md deploy examples SECURITY_RELEASE.md
