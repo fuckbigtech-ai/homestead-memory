@@ -1,0 +1,48 @@
+name: RotBench break-it fixture
+description: Submit a planted-rot case that RotBench should catch but does not (or a false positive it flags on an intact vault).
+labels: ["rotbench", "fixture"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The highest-value contribution. Read [`benchmarks/ROTBENCH.md`](../blob/master/benchmarks/ROTBENCH.md) first.
+        If it is a real gap, we add the fixture, tighten a check family, and credit you on the [scoreboard](../blob/master/benchmarks/SCOREBOARD.md).
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Missed detection (RotBench should FAIL/WARN but passes)
+        - False positive (RotBench flags an intact vault)
+    validations:
+      required: true
+  - type: textarea
+    id: fixture
+    attributes:
+      label: The fixture
+      description: A minimal Markdown vault — one or two notes plus any `.hsm/` metadata needed to trigger the behavior.
+      render: markdown
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected finding
+      description: The same shape as `hsm verify --json`.
+      render: json
+      value: |
+        {
+          "level": "fail",
+          "check": "example_gap",
+          "note": "distilled/user.md",
+          "detail": "what RotBench should have caught"
+        }
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version tested
+      placeholder: "0.2.4"
+    validations:
+      required: true

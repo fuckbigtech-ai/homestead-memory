@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/fuckbigtech-ai/homestead-memory/security/advisories/new
+    about: Report security problems privately through GitHub, never as a public issue.
+  - name: RotBench spec
+    url: https://github.com/fuckbigtech-ai/homestead-memory/blob/master/benchmarks/ROTBENCH.md
+    about: Read the integrity benchmark before submitting a break-it fixture.
