@@ -1,0 +1,37 @@
+name: docs-lint
+
+on:
+  pull_request:
+    paths:
+      - "docs/**"
+      - "benchmarks/README.md"
+      - "benchmarks/ROTBENCH.md"
+      - "deploy/**/README.md"
+      - "examples/**/README.md"
+      - "SECURITY_RELEASE.md"
+      - ".vale.ini"
+      - "styles/**"
+      - "DOCS_STYLE.md"
+      - ".github/workflows/docs-lint.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  vale:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Vale (reference-doc clarity standard)
+        uses: errata-ai/vale-action@v2
+        with:
+          files: "docs benchmarks/README.md benchmarks/ROTBENCH.md deploy examples SECURITY_RELEASE.md"
+          fail_on_error: true
+          filter_mode: nofilter
+          reporter: github-check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

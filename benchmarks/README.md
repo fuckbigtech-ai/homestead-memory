@@ -2,10 +2,10 @@
 
 ## LongMemEval
 
-`homestead-memory` is measured on [LongMemEval](https://github.com/xiaowu0162/LongMemEval)
-(ICLR 2025), the de-facto long-term-memory benchmark. For each question, the
-haystack of chat sessions is written into a fresh markdown vault (the haystack is
-the product), then homestead-memory retrieves and a reader answers.
+We measure `homestead-memory` on [LongMemEval](https://github.com/xiaowu0162/LongMemEval)
+(ICLR 2025), the de-facto long-term-memory benchmark. For each question,
+homestead-memory writes the haystack of chat sessions into a fresh Markdown
+vault, then retrieves, and a reader answers.
 
 Two runs:
 - **A (baseline):** qmd hybrid retrieval, top-k as returned.
@@ -15,7 +15,7 @@ Two runs:
 We publish **A, B, and the A→B delta**, plus a **RotBench** integrity score of the
 constructed vault (nobody else reports memory integrity alongside recall).
 
-### Validate the pipeline (no download)
+### Check the pipeline (no download)
 
 ```bash
 python -m homestead_memory.benchmarks.longmemeval --synthetic

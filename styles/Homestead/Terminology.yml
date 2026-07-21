@@ -1,0 +1,10 @@
+extends: substitution
+message: "Use '%s' instead of '%s' (canonical term; DOCS_STYLE.md)."
+level: error
+ignorecase: true
+# Only the unambiguous synonyms for the vault are hard-flagged, to avoid false
+# positives on 'store' / 'collection' as ordinary words, or 'haystack' (a real
+# LongMemEval domain term for the search space, not a synonym for the vault).
+swap:
+  memory store: vault
+  data store: vault

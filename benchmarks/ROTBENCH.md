@@ -2,6 +2,8 @@
 
 RotBench v1.1
 
+<!-- vale off -->
+
 **LOCOMO / LongMemEval measure whether the model REMEMBERS. RotBench measures
 whether the memory can be TRUSTED — that it wasn't corrupted, poisoned, or
 silently rewritten.** Recall and QA are a crowded, contested lane; integrity is
@@ -30,10 +32,12 @@ Do not inflate it. Recall and QA are honest but mid; **RotBench is the number th
 actually ours, because no one else scores the integrity of the store itself.** It is
 here to make memory claims falsifiable, not prettier.
 
+<!-- vale on -->
+
 ## Threat model
 
 RotBench scores memory against three attack classes — the things that make a
-memory store untrustworthy, not merely incomplete:
+vault untrustworthy, not merely incomplete:
 
 | class | what it is | the check that catches it | level |
 |---|---|---|---|
