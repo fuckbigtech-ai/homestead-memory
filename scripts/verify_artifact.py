@@ -19,7 +19,7 @@ def main() -> int:
         print(f"expected exactly one wheel, found {len(wheels)}", file=sys.stderr)
         return 2
     wheel = wheels[0]
-    expected = "0.2.3"
+    expected = "0.2.4"
     if f"-{expected}-" not in wheel.name:
         print(f"wheel version mismatch: {wheel.name}", file=sys.stderr)
         return 2
