@@ -51,7 +51,7 @@ jobs:
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
-          skip-existing: false
+          skip-existing: true
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/homestead_memory-*.whl
