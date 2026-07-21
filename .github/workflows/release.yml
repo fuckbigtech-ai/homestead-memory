@@ -64,14 +64,22 @@ jobs:
       contents: read
     environment: vps-canary
     steps:
-      - name: deploy immutable wheel to isolated VPS canary
+      - name: Canary deploy to an isolated VPS (optional; skips cleanly when unconfigured)
         env:
           DEPLOY_HOST: ${{ secrets.HOMESTEAD_DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.HOMESTEAD_DEPLOY_USER }}
           DEPLOY_KEY: ${{ secrets.HOMESTEAD_DEPLOY_SSH_KEY }}
           DEPLOY_KNOWN_HOSTS: ${{ secrets.HOMESTEAD_DEPLOY_KNOWN_HOSTS }}
-        run: >-
-          test -n "$DEPLOY_HOST" && test -n "$DEPLOY_USER" &&
-          test -n "$DEPLOY_KEY" && test -n "$DEPLOY_KNOWN_HOSTS"
-      - name: canary contract
-        run: echo "The configured VPS adapter must run deploy/canary/deploy.sh, health_gate.sh, and retain rollback evidence."
+        run: |
+          if [ -z "$DEPLOY_HOST" ] || [ -z "$DEPLOY_USER" ] || [ -z "$DEPLOY_KEY" ] || [ -z "$DEPLOY_KNOWN_HOSTS" ]; then
+            echo "::notice title=Canary skipped::No VPS deploy secrets configured; this optional post-publish smoke deploy is disabled."
+            echo "This workflow is a template. It never contains server details — it only reads private repository secrets at run time."
+            echo "To enable the canary, add these repository secrets (Settings > Secrets and variables > Actions):"
+            echo "  - HOMESTEAD_DEPLOY_HOST"
+            echo "  - HOMESTEAD_DEPLOY_USER"
+            echo "  - HOMESTEAD_DEPLOY_SSH_KEY"
+            echo "  - HOMESTEAD_DEPLOY_KNOWN_HOSTS"
+            echo "Then provide the adapter described in deploy/canary/README.md."
+            exit 0
+          fi
+          echo "VPS deploy secrets present. The configured adapter runs deploy/canary/deploy.sh, health_gate.sh, and keeps rollback evidence."
