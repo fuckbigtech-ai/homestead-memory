@@ -65,6 +65,41 @@ proves each class is caught with the right Finding).
   injection, and the Ed25519 signature (`provenance_integrity`) against
   post-write tampering.
 
+## Mapping to OWASP ASI06
+
+**ASI06 - Memory & Context Poisoning** in the [OWASP Top 10 for Agentic
+Applications](https://genai.owasp.org/2025/12/09/owasp-top-10-for-agentic-applications-the-benchmark-for-agentic-security-in-the-age-of-autonomous-ai/)
+names this risk officially. The [OWASP Agent Memory
+Guard](https://owasp.org/www-project-agent-memory-guard/) project describes itself
+as "the reference implementation that the risk definition currently lacks."
+
+That is the gap RotBench addresses. ASI06 names the risk and enumerates controls;
+it does not define a **score**. Without a number, "our memory is protected" is not
+a falsifiable claim.
+
+RotBench check families against ASI06's three attack vectors:
+
+| ASI06 attack vector | what it means | RotBench checks |
+|---|---|---|
+| **Direct injection** | a malicious or buggy agent writes false information straight into shared memory | `uncited_claim` (cite-or-drop: an unsourced distilled claim is a FAIL), `duplicate_value` (conflicting values for one field) |
+| **Indirect injection** | an agent processes untrusted external data and stores the result as trusted memory. OWASP notes detection here "requires provenance tracking to identify externally-sourced content" | `uncited_claim` + `dangling_citation` are exactly provenance checks: every distilled claim must carry a `(source: ...)` that resolves inside the vault |
+| **Gradual erosion ("sleeper agent")** | an agent behaves normally to build trust, then injects poisoned memories later, so the payload is temporally decoupled from the write | the time-axis family: `temporal_mismatch`, `stale_body`, `updated_ahead`, `citation_source_stale`, plus the WARN on a stale-but-valid signature |
+
+### Where RotBench does NOT overlap ASI06 (stated plainly)
+
+ASI06's mitigation guidance is mostly **preventive and runtime**: encryption at
+rest, least-privilege access, session isolation via partition keys, not persisting
+raw tool results, immutable system prompts, cache TTLs. RotBench does none of
+that. It is **detection over a store at rest**, and it is scored rather than
+enforced. The two are complementary layers, not substitutes: Agent Memory Guard
+blocks a poisoned write as it happens; RotBench tells you whether what is already
+stored can be trusted.
+
+One primitive differs too. Agent Memory Guard validates integrity with SHA-256
+baselines; RotBench uses a detached Ed25519 signature over the vault's canonical
+markdown state. Same goal (tamper-evidence), different mechanism. A store using
+either should be able to report a RotBench score.
+
 ## Conformance
 
 The reference scorer (use `--deep` to include the signature/tamper checks):
