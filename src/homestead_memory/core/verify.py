@@ -29,6 +29,7 @@ import tempfile
 import hashlib
 from dataclasses import asdict, dataclass
 from datetime import date, timedelta
+import pathlib
 from pathlib import Path
 
 from . import vault as vaultlib
@@ -496,32 +497,94 @@ def print_report(rep: dict, *, quiet: bool = False) -> None:
         print(hint)
 
 
-def quarantine_hint(rep: dict, threshold: int = 20) -> str | None:
-    """Suggest .hsmignore when failures pile up in ONE directory.
+def quarantine_hint(rep: dict, vault: Path | str | None = None,
+                    threshold: int = 20) -> str | None:
+    """Suggest .hsmignore for directories that are ENTIRELY run records.
 
-    First-run reality check: point this at a real working vault and most of the
-    noise is not rot, it is the vault's own generated output (nightly reports,
-    exports, snapshots) that never had frontmatter to begin with. Measured on the
-    author's own vault: 1,466 `frontmatter` FAILs, 1,445 of them under a single
-    directory, scoring 73 and stamped ROT DETECTED. With those quarantined it
-    scores 95.
+    Two things this deliberately does not do.
 
-    Dumping 1,466 failures with no explanation makes a correct tool look broken
-    and is the likeliest reason someone tries it once and leaves. `.hsmignore` and
-    the generated-artifact-quarantine rule already existed; nothing pointed at them.
+    It does not ask whether a directory holds "generated output rather than notes
+    you wrote". That question is useless in an agent-driven vault, where
+    essentially everything is machine-written: capture skills, changelog
+    appenders, scheduled jobs. Human authorship is close to an empty set, so it
+    cannot be the axis. The axis that separates them is LIFECYCLE, and it is
+    measurable:
+
+      memory      revised over time. carries a `## Changelog`, gets superseded,
+                  gets retrieved and cited. it CAN rot, so scoring it is the point.
+      run record  written once under a timestamped name and never touched again.
+                  nothing revises it, so it cannot drift out of date with itself.
+                  scoring it measures the harness, not the memory.
+
+    And it does not suggest the top-level directory the failures happen to share.
+    An earlier version did, and on the author's own vault it emitted
+    `echo 'Meta/' >> .hsmignore` — which would have excluded 104 real notes
+    alongside the 1,385 run records, HIDING memory that can genuinely rot and
+    inflating the score. On an integrity benchmark a hint that inflates your
+    score is worse than no hint at all.
+
+    So a directory is only offered if effectively ALL of it is run records. A
+    mixed directory is skipped and its children are considered instead, which
+    lands on the specific leaves (`Meta/memory_degradation_tests/`) rather than
+    their shared parent.
     """
     import collections
+    import re as _re
+
     fails = [f for f in rep.get("fails", []) if getattr(f, "check", "") == "frontmatter"]
     if len(fails) < threshold:
         return None
-    dirs = collections.Counter(str(getattr(f, "note", "")).split("/")[0] for f in fails)
-    top, n = dirs.most_common(1)[0]
-    if n < threshold or not top:
+
+    stamp = _re.compile(r"\d{4}-\d{2}-\d{2}")
+    failed = {str(getattr(f, "note", "")) for f in fails}
+
+    # Every ancestor directory of a failing note is a candidate; the loop below
+    # keeps only those that are wholly run records, so leaves win over parents.
+    cand = collections.Counter()
+    for rel in failed:
+        parts = pathlib.PurePosixPath(rel).parts[:-1]
+        for i in range(1, len(parts) + 1):
+            cand["/".join(parts[:i])] += 1
+
+    v = Path(vault) if vault else None
+    # DEEPEST first, so the narrowest directory that covers a cluster wins. A
+    # parent is only reached if it adds failures its children did not, which means
+    # an exclusion never reaches wider than the run records that justified it.
+    # (Sorting by count alone picked `Meta/` over `Meta/reports/` when both were
+    # 100% run records — correct that day, and silently wrong the moment a real
+    # note is written directly into Meta/.)
+    order = sorted(cand.items(), key=lambda kv: (-kv[0].count("/"), -kv[1], kv[0]))
+    picked: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    for d, _n in order:
+        fresh = {rel for rel in failed if rel.startswith(d + "/")} - seen
+        if len(fresh) < threshold:
+            continue
+        if v is not None:
+            total = sum(1 for _ in (v / d).rglob("*.md"))
+            covered = sum(1 for rel in failed if rel.startswith(d + "/"))
+            # Anything here that is NOT a failing run record is real memory this
+            # line would hide. Allow a couple of strays, never a population.
+            if total - covered > max(2, 0.02 * total):
+                continue
+        stamped = sum(1 for rel in fresh if stamp.search(pathlib.PurePosixPath(rel).stem))
+        if stamped < 0.9 * len(fresh):
+            continue                      # not the one-per-timestamp shape
+        picked.append((d, len(fresh)))
+        seen |= fresh
+
+    if not picked:
         return None
-    return (f"💡 {n} of {len(fails)} frontmatter failures are under `{top}/`. "
-            f"If that holds generated output (reports, exports, snapshots) rather than\n"
-            f"   notes you wrote, quarantine it so the score reflects your real memory:\n"
-            f"     echo '{top}/' >> .hsmignore")
+
+    picked.sort(key=lambda kv: -kv[1])
+    lines = "\n".join(f"     echo '{d}/' >> .hsmignore" for d, _ in picked[:5])
+    covered = sum(n for _, n in picked[:5])
+    where = ", ".join(f"`{d}/` ({n})" for d, n in picked[:5])
+    return (f"💡 {covered} of {len(fails)} frontmatter failures are in directories that hold\n"
+            f"   nothing but one-per-timestamp run records: {where}.\n"
+            f"   Those are written once and never revised, so they cannot rot — scoring them\n"
+            f"   measures the harness, not your memory. To quarantine just those:\n"
+            f"{lines}")
 
 
 # ---------------------------------------------------------------------------

@@ -158,15 +158,25 @@ def test_verify_deep_is_quiet_on_a_clean_store(tmp_path):
 
 # --- first-run guidance --------------------------------------------------
 
-def test_quarantine_hint_fires_when_failures_cluster_in_one_dir():
-    """Measured on a real vault: 1,466 frontmatter FAILs, 1,445 under one
-    directory of generated reports, scoring 73 ROT DETECTED. Dumping that with no
-    explanation makes a correct tool look broken."""
+def test_quarantine_hint_fires_on_a_directory_of_timestamped_run_records(tmp_path):
+    """Measured on a real vault: 1,466 frontmatter FAILs, 1,385 from ONE directory
+    of one-per-timestamp run records, scoring 73 ROT DETECTED. Dumping that with no
+    explanation makes a correct tool look broken.
+
+    Rewritten 2026-07-30. This previously used undated names (`Meta/report-3.md`)
+    and asserted only that "Meta/" appeared somewhere in the output — so it passed
+    against the version that suggested excluding the whole parent. It was encoding
+    the loose behaviour, not the intended one. The timestamped naming IS the signal.
+    """
     from homestead_memory.core import verify
-    fails = [verify.Finding("fail", "frontmatter", f"Meta/report-{i}.md", "no frontmatter")
-             for i in range(50)]
-    hint = verify.quarantine_hint({"fails": fails})
-    assert hint and "Meta/" in hint and ".hsmignore" in hint
+    d = tmp_path / "Meta" / "reports"
+    d.mkdir(parents=True)
+    for i in range(50):
+        (d / f"2026-07-{i % 28 + 1:02d}T00-00-{i:02d}-report.md").write_text("no frontmatter\n")
+    rep = {"fails": [_fm_fail(f"Meta/reports/{f.name}") for f in sorted(d.glob("*.md"))]}
+
+    hint = verify.quarantine_hint(rep, tmp_path)
+    assert hint and "echo 'Meta/reports/' >> .hsmignore" in hint
 
 
 def test_quarantine_hint_silent_on_a_small_or_scattered_vault():
@@ -178,3 +188,60 @@ def test_quarantine_hint_silent_on_a_small_or_scattered_vault():
     scattered = [verify.Finding("fail", "frontmatter", f"dir{i}/n.md", "x") for i in range(50)]
     assert verify.quarantine_hint({"fails": scattered}) is None
     assert verify.quarantine_hint({"fails": []}) is None
+
+
+def _fm_fail(rel):
+    from homestead_memory.core import verify
+    return verify.Finding("fail", "frontmatter", rel, "no frontmatter")
+
+
+def test_quarantine_hint_never_suggests_a_dir_holding_real_notes(tmp_path):
+    """The regression that matters: suggesting the shared PARENT.
+
+    The first version grouped failures by their top-level directory and emitted
+    `echo 'Meta/' >> .hsmignore`. On the author's vault that one line would have
+    excluded 104 real notes along with the run records — hiding memory that can
+    genuinely rot and inflating the score. A hint that inflates your score on an
+    integrity benchmark is worse than no hint.
+    """
+    from homestead_memory.core import verify
+    runs = tmp_path / "Meta" / "runs"
+    runs.mkdir(parents=True)
+    for i in range(30):
+        (runs / f"2026-07-{i % 28 + 1:02d}T00-00-{i:02d}-run.md").write_text("no frontmatter\n")
+    # real, hand-maintained memory living in the SAME parent
+    for i in range(10):
+        (tmp_path / "Meta" / f"real_note_{i}.md").write_text(
+            "---\nname: n\nupdated: 2026-07-30\n---\n\n## Changelog\n- 2026-07-30: x\n")
+
+    rep = {"fails": [_fm_fail(f"Meta/runs/{f.name}") for f in sorted(runs.glob("*.md"))]}
+    hint = verify.quarantine_hint(rep, tmp_path)
+
+    assert hint is not None
+    assert "echo 'Meta/runs/' >> .hsmignore" in hint
+    assert "echo 'Meta/' >> .hsmignore" not in hint, "would exclude the 10 real notes too"
+
+
+def test_quarantine_hint_declines_a_mixed_directory(tmp_path):
+    """Failures inside a dir that ALSO holds real memory are not quarantinable."""
+    from homestead_memory.core import verify
+    d = tmp_path / "Brands"
+    d.mkdir()
+    for i in range(25):
+        (d / f"2026-07-{i % 28 + 1:02d}-report.md").write_text("no frontmatter\n")
+    for i in range(25):   # half the directory is real memory
+        (d / f"brand_{i}.md").write_text("---\nname: b\n---\n")
+
+    rep = {"fails": [_fm_fail(f"Brands/{f.name}") for f in sorted(d.glob("2026-*.md"))]}
+    assert verify.quarantine_hint(rep, tmp_path) is None
+
+
+def test_quarantine_hint_ignores_undated_clusters(tmp_path):
+    """Timestamped naming is the run-record signal. Without it, stay quiet."""
+    from homestead_memory.core import verify
+    d = tmp_path / "Notes"
+    d.mkdir()
+    for i in range(30):
+        (d / f"topic_{i}.md").write_text("no frontmatter\n")
+    rep = {"fails": [_fm_fail(f"Notes/{f.name}") for f in sorted(d.glob("*.md"))]}
+    assert verify.quarantine_hint(rep, tmp_path) is None
