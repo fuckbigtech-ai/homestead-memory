@@ -119,3 +119,38 @@ def test_catches_the_case_v1_1_scored_100():
     assert [(p.left, p.right) for p in pairs] == [("r3.md", "r4.md")]
     # and the legitimate job change is NOT swept up with it
     assert all({p.left, p.right} != {"r1.md", "r2.md"} for p in pairs)
+
+
+# --- integration: the check wired into verify --------------------------------
+
+def test_verify_deep_emits_json_serializable_findings(tmp_path):
+    """Regression: iter_notes yields `rel` as a Path, and putting it straight into
+    Finding.note made the whole --json report raise
+    'Object of type PosixPath is not JSON serializable'. It only reproduced on a
+    vault that actually HAS a duplicate, so the clean case passed and hid it.
+    """
+    import json
+    from homestead_memory.core import verify
+
+    v = tmp_path / "v"
+    v.mkdir()
+    (v / "a.md").write_text(
+        "---\nname: a\n---\n\nUser is allergic to shellfish.\n")
+    (v / "b.md").write_text(
+        "---\nname: b\n---\n\nUser is not allergic to shellfish, that was someone else.\n")
+
+    rep = verify.verify_vault(v, deep=True)
+    dups = [f for f in rep["findings"] if f["check"] == "unretired_duplicate"]
+    assert dups, "the duplicate pair must be reported"
+    assert all(isinstance(f["note"], str) for f in rep["findings"])
+    json.dumps(rep["findings"])          # must not raise
+
+
+def test_verify_deep_is_quiet_on_a_clean_store(tmp_path):
+    from homestead_memory.core import verify
+    v = tmp_path / "v"
+    v.mkdir()
+    (v / "a.md").write_text("---\nname: a\n---\n\nUser prefers dark roast coffee, no sugar.\n")
+    (v / "b.md").write_text("---\nname: b\n---\n\nThe quarterly review is scheduled for August 15.\n")
+    rep = verify.verify_vault(v, deep=True)
+    assert [f for f in rep["findings"] if f["check"] == "unretired_duplicate"] == []

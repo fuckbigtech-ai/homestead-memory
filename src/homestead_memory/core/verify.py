@@ -124,11 +124,18 @@ def deep_checks(vault: Path | str | None = None, expect_pubkey: str | None = Non
       2. fixtures.json — user-defined golden recall (<vault>/.hsm/fixtures.json:
          [{"query","expect"}]) — a regression suite for "this must stay findable".
       3. qmd freshness — WARN if qmd is available but the vault was never ingested.
+      4. unretired duplicates (RotBench v1.2) — the first STORE-AGNOSTIC check.
+         Everything else here reads homestead structure (distilled layer,
+         signature), so an imported third-party store passes them vacuously.
+         Measured 2026-07-30: a Mem0 export with "is allergic to shellfish" AND
+         "is not allergic to shellfish" scored 100/100, identical to a clean one.
+         This catches that, mechanically, with no model. See core/similarity.py.
     """
     from . import index
     v = vaultlib._resolve(vault)
     out: list[Finding] = []
     notes = list(vaultlib.iter_notes(v))
+    out += _unretired_duplicate_checks(v, notes)
 
     if notes:
         txt0 = notes[0][0].read_text(errors="replace").lower()
@@ -197,6 +204,50 @@ def deep_checks(vault: Path | str | None = None, expect_pubkey: str | None = Non
         elif state_name == "unverifiable":
             out.append(Finding("warn", "provenance_integrity", ".hsm/vault.sig",
                                "cannot verify signature: install homestead-memory[sign]"))
+    return out
+
+
+# Pairwise comparison is O(n^2). Above this many eligible notes we SKIP and say so
+# out loud rather than silently sampling: a check that quietly stops covering part
+# of the store is exactly the failure mode RotBench exists to catch, and a
+# benchmark that silently truncates reports a number it did not earn.
+_DUP_SCAN_MAX_NOTES = 2000
+
+
+def _unretired_duplicate_checks(vroot: Path, notes) -> list[Finding]:
+    """WARN on near-duplicate note pairs that are both live and neither retired.
+
+    Store-agnostic by design: it reads note bodies, not homestead-specific
+    structure, so it works on raw imports from any memory system.
+    """
+    from . import similarity
+
+    bodies: dict[str, str] = {}
+    for path, rp in ((n[0], n[1]) for n in notes):
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            continue
+        # Body only: frontmatter and the changelog are metadata, and comparing
+        # them would make every note look similar to every other note.
+        body = text.split("---", 2)[-1] if text.lstrip().startswith("---") else text
+        # str(rp): iter_notes yields rel as a Path, and a Path in Finding.note
+        # makes the whole --json report unserializable. Only shows up on a vault
+        # that actually HAS a duplicate, so the clean case passes and hides it.
+        bodies[str(rp)] = body.split("## Changelog")[0]
+
+    if len(bodies) > _DUP_SCAN_MAX_NOTES:
+        return [Finding(
+            "warn", "duplicate_scan_skipped", ".",
+            f"{len(bodies)} notes exceeds the {_DUP_SCAN_MAX_NOTES}-note pairwise cap; "
+            f"unretired-duplicate detection did NOT run over this vault")]
+
+    out: list[Finding] = []
+    for pair in similarity.find_unretired_duplicates(bodies):
+        out.append(Finding(
+            "warn", "unretired_duplicate", pair.left,
+            f"near-duplicate of {pair.right} (containment {pair.score:.2f}); "
+            f"both live, neither marked as superseding the other"))
     return out
 
 

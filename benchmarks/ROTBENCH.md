@@ -236,6 +236,8 @@ Rows marked "(deep)" run only when `hsm verify --deep` is enabled.
 | `citation_source_stale` | WARN | a citation resolves, but its source note is more than 90 days old |
 | `fixtures` | WARN | (deep) `.hsm/fixtures.json` exists but is unparseable |
 | `not_indexed` | WARN | (deep) qmd is available, but the vault has not been ingested |
+| `unretired_duplicate` | WARN | (deep) **v1.2, store-agnostic.** two notes are near-textual duplicates, both live, neither marked as superseding the other. Unigram containment >= 0.77, pure stdlib, no model. Catches the accumulating-memory bug (a later note amends or negates an earlier one and the old one is never retired) on ANY store, including raw imports |
+| `duplicate_scan_skipped` | WARN | (deep) the vault exceeded the 2000-note pairwise cap, so unretired-duplicate detection did NOT run. Reported rather than silently sampled |
 | `index_drift` | WARN | (deep) the vault changed since the last ingest, so qmd may ghost-match stale embeddings |
 
 Reference implementation: `hsm verify [--deep]` (this repo, MIT). Exit code is the
