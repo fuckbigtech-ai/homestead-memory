@@ -67,6 +67,13 @@ def atomic_write(path: Path | str, text: str) -> None:
                 os.unlink(tmp)
 
 
+# Evaluated once at import. A module-level flag rather than an inline
+# `os.name == "nt"` so tests can exercise the Windows lock path without
+# monkeypatching os.name itself, which also makes pathlib treat POSIX paths as
+# Windows paths and breaks the fixture before the code under test even runs.
+_WINDOWS = os.name == "nt"
+
+
 @contextlib.contextmanager
 def vault_lock(vault: Path | str, timeout: float = 10.0, stale: float = 120.0):
     """Cross-platform advisory vault write lock using atomic O_EXCL creation.
@@ -96,6 +103,26 @@ def vault_lock(vault: Path | str, timeout: float = 10.0, stale: float = 120.0):
                 raise
             acquired = True
             break
+        except PermissionError:
+            # WINDOWS ONLY. When another writer has unlinked the lock but a handle
+            # is still open, the file enters "delete pending" and Windows answers a
+            # fresh O_CREAT|O_EXCL with ERROR_ACCESS_DENIED (errno 13) instead of
+            # EEXIST. That is contention, not a permissions problem, but it escaped
+            # the FileExistsError arm below and crashed the writer.
+            #
+            # Caught in CI 2026-07-30: test_remember_concurrency_lock_prevents_forced_lost_update
+            # failed on windows/py3.12 while windows/py3.10 passed in the SAME run,
+            # i.e. an intermittent race, not a deterministic break. It is a real
+            # defect in `hsm remember`, which is the multi-agent write path.
+            #
+            # POSIX re-raises unchanged: there, errno 13 really does mean the
+            # filesystem said no, and swallowing it would hide a genuine problem.
+            if not _WINDOWS:
+                raise
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"timed out waiting for vault lock: {lockpath}")
+            time.sleep(0.05)
+            continue
         except FileExistsError:
             pid = None
             raw = ""

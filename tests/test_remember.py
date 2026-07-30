@@ -217,3 +217,52 @@ def test_direct_citation_sidecar_exemption_rejects_path_sources(tmp_path):
 
     rep = verify.verify_vault(tmp_path)
     assert any(f.check == "dangling_citation" for f in rep["fails"])
+
+
+def test_windows_delete_pending_is_contention_not_a_crash(tmp_path, monkeypatch):
+    """Regression for the CI failure on windows/py3.12, 2026-07-30.
+
+    On Windows a lock whose delete is still pending answers a fresh
+    O_CREAT|O_EXCL with ERROR_ACCESS_DENIED (errno 13), not EEXIST. That is
+    contention. The retry loop only caught FileExistsError, so the writer crashed
+    with PermissionError instead of waiting. Simulated here because the CI matrix
+    hits it only intermittently (py3.10 windows passed in the same run).
+    """
+    import os as _os
+    from homestead_memory.core import store
+
+    monkeypatch.setattr(store, "_WINDOWS", True)
+    real_open = store.os.open
+    calls = {"n": 0}
+
+    def flaky_open(path, flags, *a, **kw):
+        # First two attempts look like Windows delete-pending, then it clears.
+        if flags & _os.O_EXCL and calls["n"] < 2:
+            calls["n"] += 1
+            raise PermissionError(13, "Permission denied")
+        return real_open(path, flags, *a, **kw)
+
+    monkeypatch.setattr(store.os, "open", flaky_open)
+
+    with store.vault_lock(tmp_path, timeout=5.0):
+        pass                      # must acquire, not raise
+
+    assert calls["n"] == 2, "the simulated contention should have been retried"
+
+
+def test_posix_permission_error_still_raises(tmp_path, monkeypatch):
+    """The Windows retry must NOT swallow a real permissions failure on POSIX,
+    where errno 13 means the filesystem genuinely said no."""
+    import os as _os
+    import pytest
+    from homestead_memory.core import store
+
+    monkeypatch.setattr(store, "_WINDOWS", False)
+
+    def always_denied(path, flags, *a, **kw):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(store.os, "open", always_denied)
+    with pytest.raises(PermissionError):
+        with store.vault_lock(tmp_path, timeout=1.0):
+            pass
