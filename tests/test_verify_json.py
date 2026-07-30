@@ -1,4 +1,5 @@
 import json
+from homestead_memory.core import verify
 
 from homestead_memory.cli import main
 
@@ -25,7 +26,7 @@ def test_cli_verify_json_emits_valid_report(tmp_path, capsys):
     assert rc == 0
     rep = _load_verify_json(capsys.readouterr().out)
     assert rep["ok"] is True
-    assert rep["rotbench_version"] == "v1.1"
+    assert rep["rotbench_version"] == verify.ROTBENCH_VERSION
 
 
 def test_cli_verify_json_rot_is_nonzero_with_findings(tmp_path, capsys):
@@ -41,7 +42,7 @@ def test_cli_verify_json_rot_is_nonzero_with_findings(tmp_path, capsys):
     assert rc == 1
     rep = _load_verify_json(capsys.readouterr().out)
     assert rep["ok"] is False
-    assert rep["rotbench_version"] == "v1.1"
+    assert rep["rotbench_version"] == verify.ROTBENCH_VERSION
     assert rep["findings"]
     assert {"level", "check", "note", "detail"} <= set(rep["findings"][0])
 
@@ -51,7 +52,7 @@ def test_cli_verify_demo_json_is_machine_readable(capsys):
 
     assert rc == 1
     rep = _load_verify_json(capsys.readouterr().out)
-    assert rep["rotbench_version"] == "v1.1"
+    assert rep["rotbench_version"] == verify.ROTBENCH_VERSION
     assert rep["findings"]
 
 
