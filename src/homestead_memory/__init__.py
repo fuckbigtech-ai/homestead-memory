@@ -5,6 +5,6 @@ Stop renting your mind. Own it, and catch it when it rots.
 
 from .sdk import Memory, connect
 
-__version__ = "0.2.7"
+__version__ = "0.2.8"
 
 __all__ = ["Memory", "connect", "__version__"]
