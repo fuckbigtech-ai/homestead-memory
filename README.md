@@ -251,7 +251,13 @@ Full run history including the failures: [`benchmarks/RESULTS.md`](benchmarks/RE
 | retrieval recall@k | **85%** (evidence surfaced into top-k) |
 | QA accuracy (official methodology) | **52.8%** |
 | context tokens / query | **~5.2k** |
-| RotBench | **99.4 / 100** |
+| RotBench | **99.4 / 100** (integrity of the *constructed benchmark vault*, not a claim about arbitrary vaults) |
+
+Read the RotBench row carefully: it scores the vault this harness builds, so it is a
+statement about *this* run, not a promise that your vault will score 99. Pointed at a
+real working vault it usually will not, and that is the tool doing its job. See
+[`benchmarks/ROTBENCH.md`](benchmarks/ROTBENCH.md) for what the score does and does
+not measure.
 
 What we will and won't claim: recall is elite and *reader-independent*; QA is honest
 and mid — published systems self-report higher on their own harnesses (Mem0 94.4%,

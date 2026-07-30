@@ -490,6 +490,38 @@ def print_report(rep: dict, *, quiet: bool = False) -> None:
         print(f"   {icon} [{fd.check}] {fd.note}: {fd.detail}")
     if len(shown) > 40:
         print(f"   … and {len(shown) - 40} more")
+    hint = quarantine_hint(rep)
+    if hint:
+        print()
+        print(hint)
+
+
+def quarantine_hint(rep: dict, threshold: int = 20) -> str | None:
+    """Suggest .hsmignore when failures pile up in ONE directory.
+
+    First-run reality check: point this at a real working vault and most of the
+    noise is not rot, it is the vault's own generated output (nightly reports,
+    exports, snapshots) that never had frontmatter to begin with. Measured on the
+    author's own vault: 1,466 `frontmatter` FAILs, 1,445 of them under a single
+    directory, scoring 73 and stamped ROT DETECTED. With those quarantined it
+    scores 95.
+
+    Dumping 1,466 failures with no explanation makes a correct tool look broken
+    and is the likeliest reason someone tries it once and leaves. `.hsmignore` and
+    the generated-artifact-quarantine rule already existed; nothing pointed at them.
+    """
+    import collections
+    fails = [f for f in rep.get("fails", []) if getattr(f, "check", "") == "frontmatter"]
+    if len(fails) < threshold:
+        return None
+    dirs = collections.Counter(str(getattr(f, "note", "")).split("/")[0] for f in fails)
+    top, n = dirs.most_common(1)[0]
+    if n < threshold or not top:
+        return None
+    return (f"💡 {n} of {len(fails)} frontmatter failures are under `{top}/`. "
+            f"If that holds generated output (reports, exports, snapshots) rather than\n"
+            f"   notes you wrote, quarantine it so the score reflects your real memory:\n"
+            f"     echo '{top}/' >> .hsmignore")
 
 
 # ---------------------------------------------------------------------------

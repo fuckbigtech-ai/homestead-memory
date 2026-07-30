@@ -154,3 +154,27 @@ def test_verify_deep_is_quiet_on_a_clean_store(tmp_path):
     (v / "b.md").write_text("---\nname: b\n---\n\nThe quarterly review is scheduled for August 15.\n")
     rep = verify.verify_vault(v, deep=True)
     assert [f for f in rep["findings"] if f["check"] == "unretired_duplicate"] == []
+
+
+# --- first-run guidance --------------------------------------------------
+
+def test_quarantine_hint_fires_when_failures_cluster_in_one_dir():
+    """Measured on a real vault: 1,466 frontmatter FAILs, 1,445 under one
+    directory of generated reports, scoring 73 ROT DETECTED. Dumping that with no
+    explanation makes a correct tool look broken."""
+    from homestead_memory.core import verify
+    fails = [verify.Finding("fail", "frontmatter", f"Meta/report-{i}.md", "no frontmatter")
+             for i in range(50)]
+    hint = verify.quarantine_hint({"fails": fails})
+    assert hint and "Meta/" in hint and ".hsmignore" in hint
+
+
+def test_quarantine_hint_silent_on_a_small_or_scattered_vault():
+    """Must not nag. A handful of failures, or failures spread across the vault,
+    are real findings and not a configuration problem."""
+    from homestead_memory.core import verify
+    few = [verify.Finding("fail", "frontmatter", "a.md", "x")]
+    assert verify.quarantine_hint({"fails": few}) is None
+    scattered = [verify.Finding("fail", "frontmatter", f"dir{i}/n.md", "x") for i in range(50)]
+    assert verify.quarantine_hint({"fails": scattered}) is None
+    assert verify.quarantine_hint({"fails": []}) is None
