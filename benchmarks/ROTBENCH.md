@@ -1,6 +1,6 @@
 # RotBench — the memory-integrity / tamper / poisoning benchmark
 
-RotBench v1.1
+RotBench v1.2 (v1.1 scoring for non-deep runs; see Scope)
 
 <!-- vale off -->
 
@@ -22,11 +22,13 @@ Most memory tools store locally now; almost none verify what they stored.
 RotBench is that missing number: **a 0-100 integrity score over a memory store,
 computed by mechanical checks — no LLM judge, no vibes.**
 
-> **Scope caveat, v1.1.** That score is only meaningful for a store carrying a
-> cite-or-drop distilled layer. Point v1.1 at an arbitrary imported store and it
-> returns ~100 regardless of content, because the load-bearing checks have nothing
-> to read. See [Scope, and what v1.1 does NOT measure](#scope-and-what-v11-does-not-measure)
-> before quoting a number or comparing tools. Store-agnostic checks are the v1.2 work.
+> **Scope caveat.** Most checks read a cite-or-drop distilled layer, so pointing
+> them at an arbitrary imported store returns ~100 regardless of content. **v1.2
+> (2026-07-30) lands the first store-agnostic check**, `unretired_duplicate`, which
+> works on any store including raw imports and is what finally separates a clean
+> foreign store from a poisoned one. Read
+> [Scope, and what v1.1 does NOT measure](#scope-and-what-v11-does-not-measure)
+> before quoting a number or comparing tools: the remaining gaps are still real.
 
 It is also the consistency/trust layer for many agents sharing one memory. The
 more writers a vault has, the more verification matters: duplicate facts, stale
@@ -110,9 +112,23 @@ So, plainly:
   `status:` against its nested `metadata.status`, which is schema hygiene, not
   meaning.
 
-Making the checks store-agnostic is the v1.2 work. Until it lands, a RotBench score
-is a statement about a distilled-layer vault, and the reporting convention should be
-read that way.
+### v1.2 (2026-07-30) — partially closed
+
+`unretired_duplicate` is the first store-agnostic check and it closes the specific
+hole above. Same two mem0 stores, `hsm verify --deep`:
+
+```text
+clean  -> score 92, unretired_duplicate findings = 0
+rotten -> score 88, unretired_duplicate findings = 1
+          (r3.md near-duplicate of r4.md, containment 1.00)
+```
+
+Still open, and still not measured: semantic contradiction where the two notes
+share few tokens, and same-subject temporal conflict. No mechanical check can do
+the first without a model, so it may never land without breaking the no-LLM-judge
+property. **A v1.2 --deep score is not directly comparable to a v1.1 --deep score**
+on the same vault, because the new WARN family shifts `warn_penalty`. Non-deep
+scores are unchanged.
 
 ## Mapping to OWASP ASI06
 

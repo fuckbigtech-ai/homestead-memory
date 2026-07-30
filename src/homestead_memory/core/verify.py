@@ -37,7 +37,13 @@ _CHANGELOG_DATE_RE = re.compile(r"^\s*-\s*(\d{4}-\d{2}-\d{2})\b", re.M)
 _STALE_BODY_DAYS = 14   # body's changelog this far past `updated:` = drifted record
 _UPDATED_AHEAD_DAYS = 30  # `updated:` this far AHEAD of the changelog = a tampered field
 _STALE_SOURCE_DAYS = 90   # a citation whose source note is this old = stale evidence
-ROTBENCH_VERSION = "v1.1"
+# v1.2 (2026-07-30): adds the first STORE-AGNOSTIC check family,
+# `unretired_duplicate` (deep only). This is a real behaviour change, not a docs
+# change: a new WARN family shifts warn_penalty, so a --deep score is no longer
+# directly comparable to a v1.1 --deep score on the same vault. Non-deep scores
+# are unaffected. Bump the version rather than let published numbers drift
+# against a moving definition.
+ROTBENCH_VERSION = "v1.2"
 
 # distilled-note grammar: `- field: value (source: path.md)` and its changelog lines.
 # Value stops at the FIRST '(source:' so a multi-source bullet doesn't fold a citation
