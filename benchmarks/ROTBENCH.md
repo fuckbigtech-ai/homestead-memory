@@ -22,6 +22,12 @@ Most memory tools store locally now; almost none verify what they stored.
 RotBench is that missing number: **a 0-100 integrity score over a memory store,
 computed by mechanical checks — no LLM judge, no vibes.**
 
+> **Scope caveat, v1.1.** That score is only meaningful for a store carrying a
+> cite-or-drop distilled layer. Point v1.1 at an arbitrary imported store and it
+> returns ~100 regardless of content, because the load-bearing checks have nothing
+> to read. See [Scope, and what v1.1 does NOT measure](#scope-and-what-v11-does-not-measure)
+> before quoting a number or comparing tools. Store-agnostic checks are the v1.2 work.
+
 It is also the consistency/trust layer for many agents sharing one memory. The
 more writers a vault has, the more verification matters: duplicate facts, stale
 citations, and unresolved merge conflicts need to be caught mechanically before
@@ -64,6 +70,49 @@ proves each class is caught with the right Finding).
   *defenses* — the cite-or-drop gate (`uncited_claim`) against unsourced
   injection, and the Ed25519 signature (`provenance_integrity`) against
   post-write tampering.
+
+## Scope, and what v1.1 does NOT measure
+
+**Read this before quoting a RotBench number.** Added 2026-07-30 after testing the
+scorer against foreign stores and finding it could not tell a poisoned one from a
+clean one.
+
+RotBench v1.1 scores **the integrity of a store's distilled layer and its
+signature.** The load-bearing checks (`uncited_claim`, `dangling_citation`,
+`duplicate_value`, `temporal_mismatch`) all read the cite-or-drop distilled
+structure. A store without that structure has nothing for them to read.
+
+The measured consequence, reproducible from this repo:
+
+```text
+mem0 export, healthy                     -> hsm import -> 100/100 MEMORY INTACT
+mem0 export, blatant contradictions      -> hsm import -> 100/100 MEMORY INTACT
+  (employer = "fintech, Toronto" AND "healthcare startup, Vancouver";
+   "is allergic to shellfish" AND "is not allergic to shellfish";
+   a citation to a file that does not exist)
+```
+
+Both score 100. The clean result is correct and is a fairness property worth
+keeping: a foreign store is **not** penalized merely for being foreign. The second
+result is the limitation: raw imported notes never enter the distilled layer, so
+every meaningful check passes vacuously.
+
+So, plainly:
+
+- ✅ **Valid**: scoring a vault that uses the cite-or-drop distilled layer, and
+  scoring tamper via the Ed25519 signature. Both are real and independently tested.
+- ❌ **Not valid**: scoring an arbitrary third-party memory store by importing it and
+  running `hsm verify`. It will score ~100 regardless of content. **Do not publish
+  comparative numbers obtained that way.**
+- ❌ **Not measured at all in v1.1**: semantic contradiction between notes,
+  same-subject temporal conflict, and unretired duplicates. `self_contradiction`
+  sounds like it covers the first one and does not: it compares a note's flat
+  `status:` against its nested `metadata.status`, which is schema hygiene, not
+  meaning.
+
+Making the checks store-agnostic is the v1.2 work. Until it lands, a RotBench score
+is a statement about a distilled-layer vault, and the reporting convention should be
+read that way.
 
 ## Mapping to OWASP ASI06
 
