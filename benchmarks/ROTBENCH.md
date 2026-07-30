@@ -114,14 +114,35 @@ So, plainly:
 
 ### v1.2 (2026-07-30) — partially closed
 
-`unretired_duplicate` is the first store-agnostic check and it closes the specific
-hole above. Same two mem0 stores, `hsm verify --deep`:
+`unretired_duplicate` is the first check that scores memory CONTENT on a store with
+no homestead structure, and it closes the specific hole above. (Two pre-existing
+checks, `frontmatter` and `broken_link`, already read raw markdown, but they score
+file hygiene, not what the store claims.)
+
+Reproduce it from this repo. Both fixtures are FOUR notes and differ in exactly one
+line, so the warn-rate denominator is identical and the scores are comparable:
+
+```bash
+hsm import benchmarks/fixtures/mem0-clean.json    /tmp/rb-clean    --format mem0
+hsm import benchmarks/fixtures/mem0-poisoned.json /tmp/rb-poisoned --format mem0
+hsm verify --deep --json /tmp/rb-clean
+hsm verify --deep --json /tmp/rb-poisoned
+```
 
 ```text
-clean  -> score 92, unretired_duplicate findings = 0
-rotten -> score 88, unretired_duplicate findings = 1
-          (r3.md near-duplicate of r4.md, containment 1.00)
+clean     n=4  score 92  MEMORY INTACT  unretired_duplicate = 0
+poisoned  n=4  score 85  MEMORY INTACT  unretired_duplicate = 1
+                                        (r3.md ~ r4.md, containment 1.00)
 ```
+
+**Corrected 2026-07-30.** An earlier revision published `poisoned -> 88`. That number
+came from a FIVE-note store while the clean one had four, so the two were not
+comparable and the pair did not reproduce. The fixtures are now committed and both
+are n=4.
+
+Note the stamp does NOT move: both stores read MEMORY INTACT, because
+`unretired_duplicate` is a WARN. The score and the findings differentiate them; the
+verdict and the exit code do not.
 
 Still open, and still not measured: semantic contradiction where the two notes
 share few tokens, and same-subject temporal conflict. No mechanical check can do

@@ -1,0 +1,23 @@
+{
+  "collection_present": true,
+  "completed_at": "2026-07-30T20:36:23.283148Z",
+  "elapsed_seconds": 40.0,
+  "embedding_fresh": true,
+  "fresh": true,
+  "heartbeat_at": "2026-07-30T20:36:23.283216Z",
+  "indexed_fingerprint": null,
+  "last_success_at": "2026-07-30T20:36:23.283148Z",
+  "outcome": "success",
+  "pending_before": 147,
+  "pending_embeddings": 0,
+  "phase": "complete",
+  "refresh_required": true,
+  "retrieval": "balanced",
+  "run_id": "843d9a2e267f45dba3dbd15836b0c90b",
+  "runtime_ok": true,
+  "schema_version": 1,
+  "source_fingerprint": "d267262633f815ef6bdbc2bc510e784f8e75cbb2ed8822d987e9e343216e4322",
+  "source_fresh": true,
+  "started_at": "2026-07-30T20:35:30.065100Z",
+  "vault": "/Users/humzaahmad/Projects/homestead-memory"
+}

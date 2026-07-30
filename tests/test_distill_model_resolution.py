@@ -84,3 +84,28 @@ def test_preflight_is_silent_when_ollama_is_unreachable(monkeypatch):
     run surface that itself rather than misdiagnosing it."""
     monkeypatch.setattr(D, "available_models", lambda timeout=10: [])
     assert D.preflight_model("anything") is None
+
+
+def test_cli_surfaces_the_model_it_used(tmp_path, capsys, monkeypatch):
+    """The report fields exist so a silent fallback is visible. If no caller prints
+    them they are decorative, which was the state until 2026-07-30."""
+    from homestead_memory import cli
+    monkeypatch.delenv("HSM_DISTILL_MODEL", raising=False)
+    (tmp_path / "a.md").write_text("---\nname: a\n---\n\nSome text here.\n")
+    monkeypatch.setattr(D, "_ollama_extract", lambda *a, **k: [])
+    monkeypatch.setattr(D, "preflight_model", lambda *a, **k: None)
+    assert cli.main(["distill", str(tmp_path), "--dry"]) == 0
+    out = capsys.readouterr().out
+    assert D.DEFAULT_DISTILL_MODEL in out, "the CLI must print which extractor ran"
+    assert "default" in out, "and where that choice came from"
+
+
+def test_report_contract_keys_are_stable():
+    """Names the keys cmd_distill indexes, so removing one fails here rather than
+    as a KeyError in the CLI."""
+    import inspect
+    src = inspect.getsource(D.distill)
+    for key in ("model", "model_source", "dry", "scanned", "changed", "facts",
+                "dropped", "failed_notes", "entities_created", "entities_updated",
+                "changelog_lines"):
+        assert f'"{key}"' in src, f"report key {key!r} missing from distill()"

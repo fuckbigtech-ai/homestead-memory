@@ -104,9 +104,13 @@ def test_env_defaults_hostname_and_cli_agent_override(tmp_path, monkeypatch):
     seen = {}
     def fake_distill(path, model=None, dry=False, agent=None):
         seen.update({"path": path, "model": model, "dry": dry, "agent": agent})
+        # Mirror the REAL distill() report contract. A fake that drifts from the
+        # thing it fakes is how a suite stays green while the CLI breaks: adding
+        # model/model_source to the report made cmd_distill KeyError on this stub.
         return {"dry": dry, "scanned": 0, "changed": 0, "facts": 0, "dropped": 0,
                 "failed_notes": 0, "entities_created": 0, "entities_updated": 0,
-                "changelog_lines": 0}
+                "changelog_lines": 0,
+                "model": distill.DEFAULT_DISTILL_MODEL, "model_source": "default"}
 
     monkeypatch.setattr(distill, "distill", fake_distill)
     assert cli.main(["distill", str(tmp_path), "--agent", "cli agent"]) == 0

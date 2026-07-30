@@ -15,26 +15,30 @@ marking one as superseding the other. That is the canonical accumulating-memory
 failure: the store keeps writing new versions of a fact and never retires the old
 one, so retrieval can surface either.
 
-WHY SHINGLE JACCARD AND NOT EMBEDDINGS
---------------------------------------
+WHY UNIGRAM CONTAINMENT AND NOT EMBEDDINGS
+------------------------------------------
 Embeddings would break the property the whole benchmark rests on: RotBench is
 mechanical, reproducible on any machine, with no model and no API key. A score
 that moves when someone swaps an embedding model is not a standard.
 
-Jaccard over token shingles is deterministic, pure stdlib, and on this problem it
-is also simply *better behaved*:
+Unigram containment is deterministic, pure stdlib, and on this problem it is also
+simply *better behaved*. (The first attempt WAS 3-gram Jaccard; it measured a
+NEGATIVE margin. See the tuning table on DUPLICATE_THRESHOLD. `jaccard()` below is
+retained for reporting and for reproducing that tuning; the check does not use it.)
 
   "is allergic to shellfish" vs "is NOT allergic to shellfish, that was someone
   else"  ->  high token overlap  ->  FLAGGED. Correct: near-identical text
   asserting opposite things, with neither retired, is a real integrity defect.
-  (Embeddings are famously weak at negation and would score these as similar too,
-  but for the wrong reason.)
+  (We did NOT measure an embedding baseline; there is no embedding dependency in
+  this repo. The expectation that embeddings under-separate negation is stated as
+  an expectation, not a result.)
 
   "staff engineer at a fintech in Toronto" vs "product manager at a healthcare
-  startup in Vancouver"  ->  low token overlap  ->  NOT flagged. Also correct: an
-  embedding model rates these similar because both are "employment", but a person
-  changing jobs is legitimate history, not rot. Flagging it would be a false
-  positive, and a benchmark that cries wolf gets ignored.
+  startup in Vancouver"  ->  low token overlap  ->  NOT flagged. Correct: a person
+  changing jobs is legitimate history, not rot; flagging it would be a false
+  positive, and a check that cries wolf gets switched off. (We would EXPECT a
+  topical embedding to group these as "employment" and over-flag, but that is an
+  expectation, not something measured here.)
 
 So the mechanical check is the more honest one here, not merely the cheaper one.
 

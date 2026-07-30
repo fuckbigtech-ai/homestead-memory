@@ -20,6 +20,16 @@ from pathlib import Path
 from . import __version__
 from .core import vault as vaultlib
 
+
+def _distill_default() -> str:
+    """Read the real default so --help can never drift from the code again.
+
+    Local import: cli.py imports core modules lazily inside commands to keep
+    startup cheap, and build_parser runs at import time.
+    """
+    from .core import distill
+    return distill.DEFAULT_DISTILL_MODEL
+
 STARTER_NOTE = """\
 ---
 name: welcome
@@ -247,6 +257,10 @@ def cmd_distill(args) -> int:
     rep = distill.distill(args.path, model=args.model, dry=args.dry, agent=args.agent)
     print(f"distill{' (dry)' if rep['dry'] else ''}: scanned {rep['scanned']} notes, "
           f"{rep['changed']} new/changed")
+    # Surface the extractor. This is the whole point of recording it: a launchd or
+    # CI run does not inherit an interactive-shell env var and silently falls back
+    # to the default, which thins the distilled layer and lowers any score over it.
+    print(f"  model {rep['model']} (from {rep['model_source']})")
     print(f"  facts kept {rep['facts']} · dropped by cite-or-drop {rep['dropped']} · "
           f"failed notes {rep['failed_notes']} (retried next run)")
     print(f"  entities: {rep['entities_created']} created, {rep['entities_updated']} updated · "
@@ -409,7 +423,8 @@ def build_parser() -> argparse.ArgumentParser:
     pd.add_argument("path", nargs="?", default=None,
                     help="vault directory (default: $HSM_VAULT, else cwd)")
     pd.add_argument("--model", default=None,
-                    help="extraction model (default: $HSM_DISTILL_MODEL or llama3.1:latest via ollama)")
+                    help=f"extraction model (default: $HSM_DISTILL_MODEL or "
+                         f"{_distill_default()} via ollama)")
     pd.add_argument("--dry", action="store_true", help="report without writing")
     pd.add_argument("--agent", default=None,
                     help="writer identity stamped on distilled changelog provenance")

@@ -261,7 +261,10 @@ def distill(vault: Path | str | None = None, model: str | None = None,
     is injectable for tests; default = local ollama at temperature 0 (windowed)."""
     import os
     v = vaultlib._resolve(vault)
-    model_arg_given = model is not None      # capture BEFORE resolve overwrites it
+    # bool(), not `is not None`: resolve_model() uses truthiness, so model="" falls
+    # through to the env/default. Recording it as 'argument' would claim the caller
+    # pinned a model they did not pin, defeating the field's whole purpose.
+    model_arg_given = bool(model)            # capture BEFORE resolve overwrites it
     model = resolve_model(model)
     # Only preflight when we are actually going to call ollama; extract_fn is the
     # test/injection path and must stay hermetic.
