@@ -38,6 +38,10 @@ CLI `--help` strings and SDK docstrings should follow the same clarity rules by 
 
 Use the canonical term. Do not use the synonyms.
 
+<!-- vale off -->
+<!-- The banned-term column necessarily CONTAINS the banned terms; Vale's
+     Homestead.Terminology rule flags the table that defines it. Self-referential
+     false positive, and it blocked docs-lint on any PR touching this file. -->
 | Concept | Canonical | Do not use |
 | --- | --- | --- |
 | The Markdown directory of memory | **vault** | memory store, data store, collection, haystack |
@@ -47,6 +51,7 @@ Use the canonical term. Do not use the synonyms.
 | The 0–100 result | **integrity score** | health score, rating |
 | The benchmark | **RotBench** | the integrity benchmark, the test suite |
 | Write-time extraction | **distillation** / **distilled note** | fact layer, extracted facts |
+<!-- vale on -->
 
 ## How enforcement works
 

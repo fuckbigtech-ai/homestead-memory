@@ -5,7 +5,11 @@ name: RotBench
 on:
   pull_request:
   push:
-    branches: [main]
+    # master AND main. The default branch here is master, so a trigger of
+    # [main] alone meant this workflow had NEVER fired on a push in the repo's
+    # entire history — only on pull_request. Embarrassing given the project's own
+    # claim is that `hsm verify` gates CI like a test suite.
+    branches: [master, main]
 
 jobs:
   verify-memory:

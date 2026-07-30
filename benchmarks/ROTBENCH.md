@@ -99,11 +99,11 @@ keeping: a foreign store is **not** penalized merely for being foreign. The seco
 result is the limitation: raw imported notes never enter the distilled layer, so
 every meaningful check passes vacuously.
 
-So, plainly:
+Plainly:
 
 - ✅ **Valid**: scoring a vault that uses the cite-or-drop distilled layer, and
   scoring tamper via the Ed25519 signature. Both are real and independently tested.
-- ❌ **Not valid**: scoring an arbitrary third-party memory store by importing it and
+- ❌ **Not valid**: scoring an arbitrary third-party store by importing it and
   running `hsm verify`. It will score ~100 regardless of content. **Do not publish
   comparative numbers obtained that way.**
 - ❌ **Not measured at all in v1.1**: semantic contradiction between notes,
