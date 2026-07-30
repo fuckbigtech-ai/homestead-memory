@@ -41,6 +41,7 @@ _MIN_QUOTE_LEN = 12
 _WINDOW = 8000          # chars per extraction window
 _MAX_WINDOWS = 4        # notes longer than _WINDOW*_MAX_WINDOWS are counted as truncated
 _OLLAMA_API = "http://localhost:11434/api/generate"
+_OLLAMA_TAGS = "http://localhost:11434/api/tags"
 
 # a distilled-note body bullet:  - <field>: <value> (source: <rel/path.md>)
 _BULLET_RE = re.compile(r"^- (?P<field>[a-z0-9_]+): (?P<value>.*?) \(source: (?P<src>[^)]+)\)\s*$")
@@ -132,6 +133,59 @@ NOTE ({rel}):
 JSON:"""
 
 
+# The extraction model is a RECOMMENDATION, not a pin. Override per-run with
+# `--model`, or globally with $HSM_DISTILL_MODEL.
+#
+# Was `llama3.1:latest` until 2026-07-30. That release is ~23 months old and, on a
+# 2026 machine, took over ten minutes on five one-line notes before being killed.
+# A default that slow is a default nobody discovers is wrong: distillation just
+# appears to hang.
+#
+# NOTE the resolved model materially changes results. A weaker extractor proposes
+# fewer facts, so the cite-or-drop gate passes fewer through, so the distilled
+# layer is thinner and any RotBench score over it is lower. It fails SAFE (the gate
+# discards unsupported quotes mechanically, so you get fewer facts, not wrong ones)
+# but it is NOT score-neutral. Benchmark runs must pin and publish the model.
+DEFAULT_DISTILL_MODEL = "qwen3"
+
+
+def available_models(timeout: int = 10) -> list[str]:
+    """Model names ollama currently has locally. Empty list if it is unreachable."""
+    try:
+        with urllib.request.urlopen(_OLLAMA_TAGS, timeout=timeout) as r:
+            return [m.get("name", "") for m in json.loads(r.read()).get("models", [])]
+    except Exception:
+        return []
+
+
+def resolve_model(model: str | None = None) -> str:
+    """arg > $HSM_DISTILL_MODEL > DEFAULT_DISTILL_MODEL.
+
+    Kept as one function so callers and the report agree on what actually ran.
+    `.zshrc` is interactive-only, so a launchd or CI run does NOT inherit an env
+    var set there and silently lands on the default. That is precisely how a
+    benchmark ends up scored with a crippled extractor and nobody notices, so the
+    resolved value is recorded in the run report rather than inferred.
+    """
+    import os
+    return model or os.environ.get("HSM_DISTILL_MODEL") or DEFAULT_DISTILL_MODEL
+
+
+def preflight_model(model: str, timeout: int = 10) -> str | None:
+    """Return a human-readable problem with `model`, or None if it looks usable."""
+    have = available_models(timeout)
+    if not have:
+        return None                      # ollama unreachable; the run will surface it
+    if model in have:
+        return None
+    # ollama treats a bare name as ':latest'
+    if any(h.split(":", 1)[0] == model.split(":", 1)[0] for h in have):
+        return None
+    return (f"model {model!r} is not available locally. Have: {', '.join(sorted(have)[:6])}"
+            f"{' ...' if len(have) > 6 else ''}. "
+            f"Pull it (`ollama pull {model}`) or set HSM_DISTILL_MODEL.")
+
+
 def _ollama_generate(model: str, prompt: str, timeout: int) -> str:
     """POST to local ollama. Retries 429/5xx with exponential backoff — a big batch
     (e.g. per-session extraction) must throttle, not silently starve (the 2026-07-04
@@ -207,7 +261,16 @@ def distill(vault: Path | str | None = None, model: str | None = None,
     is injectable for tests; default = local ollama at temperature 0 (windowed)."""
     import os
     v = vaultlib._resolve(vault)
-    model = model or os.environ.get("HSM_DISTILL_MODEL", "llama3.1:latest")
+    model_arg_given = model is not None      # capture BEFORE resolve overwrites it
+    model = resolve_model(model)
+    # Only preflight when we are actually going to call ollama; extract_fn is the
+    # test/injection path and must stay hermetic.
+    if extract_fn is None:
+        problem = preflight_model(model)
+        if problem:
+            # Fail fast and legibly. The old behaviour was a silent multi-minute
+            # stall while urllib waited on a model that was never going to answer.
+            raise RuntimeError(f"distill: {problem}")
     extract = extract_fn or (lambda rel, body: _ollama_extract(model, rel, body))
     writer_agent = provenance.resolve_agent(agent)
     writer_session = provenance.resolve_session(session)
@@ -220,7 +283,15 @@ def distill(vault: Path | str | None = None, model: str | None = None,
 
     rep = {"scanned": 0, "changed": 0, "facts": 0, "dropped": 0, "failed_notes": 0,
            "skipped_unsafe_path": 0, "truncated_notes": 0,
-           "entities_created": 0, "entities_updated": 0, "changelog_lines": 0, "dry": dry}
+           "entities_created": 0, "entities_updated": 0, "changelog_lines": 0, "dry": dry,
+           # RECORD, do not infer. The extractor changes how many facts survive
+           # cite-or-drop, so a report that omits it cannot be reproduced or
+           # compared. `model_source` makes a silent env-less fallback visible in
+           # the artifact instead of invisible in a log nobody reads.
+           "model": model,
+           "model_source": ("argument" if model_arg_given
+                            else "HSM_DISTILL_MODEL" if os.environ.get("HSM_DISTILL_MODEL")
+                            else "default")}
 
     for p, rel in vaultlib.iter_notes(v):
         rp = rel.as_posix()
