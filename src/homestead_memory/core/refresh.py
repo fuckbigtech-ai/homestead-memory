@@ -89,14 +89,18 @@ def _write(state_file: Path, state: dict[str, Any], **updates: Any) -> None:
 
 
 def _run_qmd(args: list[str], timeout: float, *, state_file: Path,
-             state: dict[str, Any], phase: str) -> subprocess.CompletedProcess[str]:
+             state: dict[str, Any], phase: str,
+             config_dir: Path | None = None) -> subprocess.CompletedProcess[str]:
     """Run QMD with a progress heartbeat and a hard process-group timeout."""
     started = time.monotonic()
+    env = qmd_runtime.environment(qmd_bin=index._QMD)
+    if config_dir is not None:
+        env["QMD_CONFIG_DIR"] = str(config_dir)
     process = subprocess.Popen(
         [index._QMD, *args], stdin=subprocess.DEVNULL,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
         start_new_session=(os.name != "nt"),
-        env=qmd_runtime.environment(qmd_bin=index._QMD),
+        env=env,
     )
     while process.poll() is None:
         elapsed = time.monotonic() - started
@@ -121,6 +125,13 @@ def _run_qmd(args: list[str], timeout: float, *, state_file: Path,
                                        output, output)
 
 
+def _require_qmd(result: subprocess.CompletedProcess[str], operation: str) -> None:
+    if result.returncode == 0:
+        return
+    detail = (result.stderr or result.stdout or f"qmd {operation} failed").strip()[-1000:]
+    raise RuntimeError(detail)
+
+
 def refresh(vault: Path | str | None = None, *, state_dir: Path | str | None = None,
             watchdog_seconds: float = 3600.0, batch_docs: int = 100,
             batch_mb: int = 64) -> RefreshReport:
@@ -132,7 +143,8 @@ def refresh(vault: Path | str | None = None, *, state_dir: Path | str | None = N
     state_file, lock_file = _state_paths(root, state_dir)
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state: dict[str, Any] = {
-        "schema_version": 1, "run_id": uuid.uuid4().hex, "phase": "starting",
+        "schema_version": 1, "run_id": uuid.uuid4().hex, "ok": False,
+        "phase": "starting",
         "outcome": "running", "started_at": _now(), "vault": str(root),
     }
     lock_created = False
@@ -186,18 +198,34 @@ def refresh(vault: Path | str | None = None, *, state_dir: Path | str | None = N
                     raise RuntimeError(f"unable to stop owned QMD runtime: {stopped.get('reason')}")
             try:
                 name = index.collection_name(root)
-                add_or_update = (["update"] if index._collection_exists(name)
-                                 else ["collection", "add", str(root), "--name", name, "--mask", "**/*.md"])
-                result = _run_qmd(add_or_update, min(900.0, watchdog_seconds),
-                                  state_file=state_file, state=state, phase="qmd_update")
-                if result.returncode != 0:
-                    raise RuntimeError((result.stderr or result.stdout or "qmd update failed").strip()[-1000:])
-                embed = _run_qmd(["embed", "--max-docs-per-batch", str(batch_docs),
-                                  "--max-batch-mb", str(batch_mb)],
-                                 max(1.0, watchdog_seconds - (time.monotonic() - started)),
-                                 state_file=state_file, state=state, phase="qmd_embed")
-                if embed.returncode != 0:
-                    raise RuntimeError((embed.stderr or embed.stdout or "qmd embed failed").strip()[-1000:])
+                if index._collection_exists(name):
+                    with tempfile.TemporaryDirectory(prefix="hsm-qmd-target-") as target_config:
+                        config_dir = Path(target_config)
+                        (config_dir / "index.yml").write_text(
+                            "collections:\n"
+                            f"  {name}:\n"
+                            f"    path: {json.dumps(str(root))}\n"
+                            '    pattern: "**/*.md"\n',
+                            encoding="utf-8",
+                        )
+                        update = _run_qmd(
+                            ["update"], min(900.0, watchdog_seconds),
+                            state_file=state_file, state=state,
+                            phase="qmd_update_target", config_dir=config_dir)
+                        _require_qmd(update, "target collection update")
+                else:
+                    add = _run_qmd(
+                        ["collection", "add", str(root), "--name", name,
+                         "--mask", "**/*.md"],
+                        min(900.0, watchdog_seconds), state_file=state_file,
+                        state=state, phase="qmd_add_target")
+                    _require_qmd(add, "collection add")
+                embed = _run_qmd(
+                    ["embed", "--max-docs-per-batch", str(batch_docs),
+                     "--max-batch-mb", str(batch_mb)],
+                    max(1.0, watchdog_seconds - (time.monotonic() - started)),
+                    state_file=state_file, state=state, phase="qmd_embed")
+                _require_qmd(embed, "embed")
             finally:
                 marker.unlink(missing_ok=True)
                 if was_running and index._QMD:
@@ -210,7 +238,8 @@ def refresh(vault: Path | str | None = None, *, state_dir: Path | str | None = N
         fingerprint_path = state_file.parent / "vault-fingerprint.sha256"
         store.atomic_write(fingerprint_path, fingerprint + "\n")
         completed = _now()
-        _write(state_file, state, phase="complete", outcome="success", completed_at=completed,
+        _write(state_file, state, ok=True, phase="complete", outcome="success",
+               completed_at=completed,
                last_success_at=completed, source_fresh=True, embedding_fresh=True, fresh=True,
                pending_embeddings=0, collection_present=doctor.get("collection_present") is True,
                runtime_ok=doctor.get("runtime_ok", False), retrieval="balanced")
