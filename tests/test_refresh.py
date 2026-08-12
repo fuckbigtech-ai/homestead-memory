@@ -97,5 +97,5 @@ def test_refresh_updates_only_the_target_collection(tmp_path, monkeypatch):
     assert report["outcome"] == "success"
     assert calls[0] == ["update"]
     assert calls[1][0] == "embed"
-    assert str(vault) in isolated_config
+    assert json.dumps(str(vault)) in isolated_config
     assert "**/*.md" in isolated_config
