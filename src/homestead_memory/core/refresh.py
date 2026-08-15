@@ -231,6 +231,8 @@ def refresh(vault: Path | str | None = None, *, state_dir: Path | str | None = N
                 if was_running and index._QMD:
                     qmd_runtime.start(index._QMD)
             runtime = qmd_runtime.status()
+            if was_running and not runtime.get("ok"):
+                raise RuntimeError("owned QMD runtime did not restart after refresh")
         doctor = qmd_runtime.doctor(index._QMD, index.collection_name(root))
         pending = doctor.get("pending_embeddings")
         if not isinstance(pending, int) or pending != 0:

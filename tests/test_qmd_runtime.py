@@ -1,4 +1,5 @@
 import os
+import signal
 from pathlib import Path
 
 from homestead_memory import cli
@@ -112,6 +113,33 @@ def test_windows_stop_terminates_only_owned_pid(tmp_path, monkeypatch):
     report = qmd_runtime.stop(wait_seconds=0.2)
     assert report["stopped"] is True
     assert terminated == [(42, False)]
+
+
+def test_posix_terminate_signals_dedicated_process_group(monkeypatch):
+    calls = []
+    monkeypatch.setattr(qmd_runtime, "_platform_is_windows", lambda: False)
+    monkeypatch.setattr(qmd_runtime.os, "getpgid", lambda pid: 4200, raising=False)
+    monkeypatch.setattr(qmd_runtime.os, "getpgrp", lambda: 7, raising=False)
+    monkeypatch.setattr(
+        qmd_runtime.os,
+        "killpg",
+        lambda process_group, sig: calls.append((process_group, sig)),
+        raising=False,
+    )
+
+    assert qmd_runtime._terminate(42) is True
+    assert calls == [(4200, signal.SIGTERM)]
+
+
+def test_posix_terminate_refuses_callers_process_group(monkeypatch):
+    calls = []
+    monkeypatch.setattr(qmd_runtime, "_platform_is_windows", lambda: False)
+    monkeypatch.setattr(qmd_runtime.os, "getpgid", lambda pid: 7, raising=False)
+    monkeypatch.setattr(qmd_runtime.os, "getpgrp", lambda: 7, raising=False)
+    monkeypatch.setattr(qmd_runtime.os, "killpg", lambda *args: calls.append(args), raising=False)
+
+    assert qmd_runtime._terminate(42) is False
+    assert calls == []
 
 
 def test_qmd_stop_returns_success_after_process_is_gone(monkeypatch, capsys):
