@@ -229,7 +229,15 @@ def _terminate(pid: int, force: bool = False) -> bool:
             return _terminate_windows(pid)
         except (OSError, ValueError):
             return False
-    os.kill(pid, signal.SIGKILL if force else signal.SIGTERM)
+    try:
+        process_group = os.getpgid(pid)
+    except OSError:
+        return False
+    # Every runtime that Homestead starts has its own session. Never signal the
+    # caller's process group if a stale or malformed PID file points elsewhere.
+    if process_group == os.getpgrp():
+        return False
+    os.killpg(process_group, signal.SIGKILL if force else signal.SIGTERM)
     return True
 
 
