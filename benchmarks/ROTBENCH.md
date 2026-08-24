@@ -1,6 +1,6 @@
 # RotBench — the memory-integrity / tamper / poisoning benchmark
 
-RotBench v1.2 (v1.1 scoring for non-deep runs; see Scope)
+RotBench v1.3 (v1.1 scoring for non-deep runs; see Scope)
 
 <!-- vale off -->
 
@@ -111,6 +111,34 @@ Plainly:
   sounds like it covers the first one and does not: it compares a note's flat
   `status:` against its nested `metadata.status`, which is schema hygiene, not
   meaning.
+
+### v1.3 (2026-08-24) — the ledger, and what a dangling pointer means
+
+Two additions, both from measurement rather than preference.
+
+**The agent ledger** (`ledger_*`). A hash-chained, append-only record of what an agent
+actually did. It is DERIVED memory: every record is a claim about something that already
+happened, so a dangling or broken record is categorically worse than in a hand-written
+note. A note may point at something that does not exist yet; a ledger may not, because
+you cannot record an event that has not occurred. Hence FAIL.
+
+Note the boundary the spec states rather than hides: **a wholly rebuilt chain verifies
+clean.** An attacker who rewrites every record recomputes every hash and the result is
+self-consistent by construction. That is not a defect in chain verification, it is its
+definition, and it is why `ledger_signature` exists. The test suite asserts the forged
+chain passes, so nobody mistakes chaining for proof of authenticity.
+
+**`dead_link`.** Previously all missing `[[wikilinks]]` were one WARN. Measured on a
+real 4,808-note vault: of 120 unique missing targets, **93 had never existed** and
+**27 had been deleted**. Those are not the same defect. A forward-link is an encouraged
+habit; a link that outlived its target is rot. Only git can separate them, so this runs
+only in git-backed vaults and DISCLOSES when it cannot run instead of scoring clean.
+
+**Comparability.** A v1.3 `--deep` score is not directly comparable to a v1.2 `--deep`
+score on a vault that has a ledger or deleted notes. Non-deep scores are unaffected. The
+published fixture scores are unchanged and re-verified under v1.3: **clean 92 /
+poisoned 85**, and a test now asserts both the values and that clean still exceeds
+poisoned, because a benchmark that stops discriminating has stopped being one.
 
 ### v1.2 (2026-07-30) — partially closed
 
@@ -274,6 +302,12 @@ Rows marked "(deep)" run only when `hsm verify --deep` is enabled.
 | `fixtures` | WARN | (deep) `.hsm/fixtures.json` exists but is unparseable |
 | `not_indexed` | WARN | (deep) qmd is available, but the vault has not been ingested |
 | `unretired_duplicate` | WARN | (deep) **v1.2, store-agnostic.** two notes are near-textual duplicates, both live, neither marked as superseding the other. Unigram containment >= 0.77, pure stdlib, no model. Catches the accumulating-memory bug (a later note amends or negates an earlier one and the old one is never retired) on ANY store, including raw imports |
+| `ledger_chain` | FAIL | (deep) **v1.3.** a record in the agent ledger fails to hash-chain to its predecessor: edited in place, deleted, reordered, or torn by a crash. Reported at the exact index. A ledger is DERIVED memory (every record claims something already happened), so a break is inadmissible rather than merely suspicious |
+| `ledger_drop` | FAIL | (deep) **v1.3.** the ledger records that it failed to record. A log that hides its own gaps is worse than no log, because it invites trust it has not earned |
+| `ledger_signature` | FAIL | (deep) **v1.3.** the signed checkpoint does not verify against the current head. Catches a wholly rebuilt chain, which hash-chaining alone cannot: an attacker who rewrites every record recomputes every hash and produces a self-consistent file |
+| `ledger_unsigned` | WARN | (deep) **v1.3.** a ledger exists with no checkpoint. The chain still proves nobody edited it in place; requiring a key to use the tool would stop people using the tool |
+| `dead_link` | FAIL | (deep, git-backed vaults) **v1.3.** a `[[wikilink]]` pointing at a note that git shows was DELETED. Distinct from `broken_link`: measured on a real 4,808-note vault, of 120 unique missing targets **93 never existed** (forward-links, an encouraged habit) and **27 had been deleted** (dead pointers). Grading them identically either punishes good practice or excuses real decay |
+| `dead_link_unchecked` | WARN | (deep) **v1.3.** missing link targets exist but the vault is not a git repository, so forward-links cannot be separated from deleted notes. Emitted ONLY when there are broken links to adjudicate: an unconditional coverage warning penalises a vault for the tool's limitation rather than its own state |
 | `duplicate_scan_skipped` | WARN | (deep) the vault exceeded the 2000-note pairwise cap, so unretired-duplicate detection did NOT run. Reported rather than silently sampled |
 | `index_drift` | WARN | (deep) the vault changed since the last ingest, so qmd may ghost-match stale embeddings |
 

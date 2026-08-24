@@ -44,7 +44,7 @@ _STALE_SOURCE_DAYS = 90   # a citation whose source note is this old = stale evi
 # directly comparable to a v1.1 --deep score on the same vault. Non-deep scores
 # are unaffected. Bump the version rather than let published numbers drift
 # against a moving definition.
-ROTBENCH_VERSION = "v1.2"
+ROTBENCH_VERSION = "v1.3"
 
 # distilled-note grammar: `- field: value (source: path.md)` and its changelog lines.
 # Value stops at the FIRST '(source:' so a multi-source bullet doesn't fold a citation
@@ -143,6 +143,7 @@ def deep_checks(vault: Path | str | None = None, expect_pubkey: str | None = Non
     out: list[Finding] = []
     notes = list(vaultlib.iter_notes(v))
     out += _unretired_duplicate_checks(v, notes)
+    out += _ledger_checks(v)
 
     if notes:
         txt0 = notes[0][0].read_text(errors="replace").lower()
@@ -259,6 +260,120 @@ def _unretired_duplicate_checks(vroot: Path, notes) -> list[Finding]:
 
 
 _SOURCE_CITE_RE = re.compile(r"\(source:\s*([^)]+)\)")
+
+
+def _ledger_checks(vroot: Path) -> list[Finding]:
+    """Integrity of the agent ledger, when one exists (RotBench v1.3).
+
+    A ledger is DERIVED memory: every record is a claim about something that already
+    happened. That makes its failure modes categorically different from a hand-written
+    note. A note may legitimately point at something that does not exist yet; a ledger
+    may not, because you cannot record an event that has not occurred.
+
+    So these are FAILs, not WARNs. A ledger with a broken chain is not "worth a look",
+    it is inadmissible.
+    """
+    from . import ledger
+
+    out: list[Finding] = []
+    if not (vroot / ledger.LEDGER_REL).exists():
+        return out                      # no ledger is not a defect, it is not in use
+
+    for b in ledger.verify_chain(vroot)[:50]:
+        out.append(Finding("fail", "ledger_chain", f"(ledger index {b.index})",
+                           f"{b.kind}: {b.detail}"))
+
+    drops = ledger.read_drops(vroot)
+    if drops:
+        # The log knows it is incomplete. Reporting that is the entire point: a record
+        # that hides its own gaps is worse than no record, because it invites trust.
+        out.append(Finding("fail", "ledger_drop", "(ledger)",
+                           f"{len(drops)} event(s) failed to record - the log has known "
+                           f"gaps; most recent: {drops[-1].get('reason', '?')[:80]}"))
+
+    if (vroot / ledger.CHECKPOINT_REL).exists():
+        try:
+            ok, why = ledger.verify_checkpoint(vroot)
+        except RuntimeError:
+            ok, why = True, "signature check unavailable (install the [sign] extra)"
+        if not ok:
+            out.append(Finding("fail", "ledger_signature", "(ledger)", why))
+    elif ledger.read_all(vroot):
+        # Unsigned is a real weakness, not a failure: the chain still proves nobody
+        # edited it in place, and demanding a key to use the tool would stop people
+        # using it. See test_a_fully_rebuilt_chain_* for what this does not cover.
+        out.append(Finding("warn", "ledger_unsigned", "(ledger)",
+                           "ledger has no checkpoint; a wholly rebuilt chain would go "
+                           "undetected (run `hsm ledger checkpoint`)"))
+    return out
+
+
+def _dead_link_checks(vroot: Path, findings: list[Finding]) -> list[Finding]:
+    """Promote broken links that point at DELETED notes (RotBench v1.3).
+
+    Measured on a real 4,808-note vault: of 120 unique missing link targets, 93 never
+    existed and 27 had been deleted. Those are not the same defect and must not carry
+    the same weight.
+
+      never existed  a forward-link. Writing [[note-i-will-make]] is a normal and
+                     encouraged habit. Grading it as rot punishes good practice.
+      once existed   a dead pointer. Something was there, the link outlived it, and
+                     retrieval now leads nowhere. That is rot by any definition.
+
+    Only git can tell them apart, so this runs only in a git-backed vault and REPORTS
+    when it cannot run rather than silently scoring the vault as clean. Deep-only: it
+    shells out per unique target.
+    """
+    import re as _re
+    import subprocess
+
+    targets: dict[str, Finding] = {}
+    for f in findings:
+        if f.check != "broken_link":
+            continue
+        m = _re.search(r"\[\[([^\]]+)\]\]", f.detail)
+        if m:
+            targets.setdefault(m.group(1), f)
+
+    if not targets:
+        # Nothing to adjudicate. Emitting "I could not check" here would penalise every
+        # vault for OUR limitation rather than for its own state -- and it did: it
+        # dropped the published clean fixture from 92 to 85, collapsing it onto the
+        # poisoned score and destroying the benchmark's discriminating power. Silence
+        # when there is nothing to say.
+        return []
+
+    if not (vroot / ".git").exists():
+        # Now the disclosure is load-bearing: there ARE broken links and we cannot tell
+        # forward-links from dead pointers. Say so rather than scoring the vault clean.
+        return [Finding("warn", "dead_link_unchecked", "(vault)",
+                        f"{len(targets)} missing link target(s) present, but this is not a "
+                        f"git repository, so forward-links cannot be separated from "
+                        f"deleted notes; dead pointers may be unscored")]
+
+    out: list[Finding] = []
+    for name, src in list(targets.items())[:200]:      # bounded: one subprocess each
+        try:
+            # BOTH pathspecs. `**/x.md` does not match a file at the repository ROOT,
+            # so a top-level deleted note went unseen. The author's own vault nests
+            # everything under Brands/, Feedback/ etc., which masked this entirely --
+            # it only surfaced against a fixture with a root-level note.
+            r = subprocess.run(
+                ["git", "-C", str(vroot), "log", "--oneline", "--diff-filter=D",
+                 "--", f"{name}.md", f"**/{name}.md"],
+                capture_output=True, text=True, timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if r.stdout.strip():
+            out.append(Finding("fail", "dead_link", src.note,
+                               f"[[{name}]] pointed at a note that was DELETED "
+                               f"(not a forward-link) - retrieval leads nowhere"))
+    if len(targets) > 200:
+        out.append(Finding("warn", "dead_link_truncated", "(vault)",
+                           f"only the first 200 of {len(targets)} unique missing targets "
+                           f"were checked against git history"))
+    return out
 
 
 def _sha256(text: str) -> str:
@@ -451,6 +566,9 @@ def verify_vault(vault: Path | str | None = None, deep: bool = False,
 
     if deep:
         findings += deep_checks(vault, expect_pubkey=expect_pubkey)
+        # After the main pass, because it PROMOTES existing broken_link findings: it
+        # needs the list to know which targets to ask git about.
+        findings += _dead_link_checks(vaultlib._resolve(vault), findings)
 
     fails = [x for x in findings if x.level == "fail"]
     warns = [x for x in findings if x.level == "warn"]
