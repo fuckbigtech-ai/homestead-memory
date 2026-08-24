@@ -243,6 +243,52 @@ def verify_chain(vault: Path | str | None = None) -> list[ChainBreak]:
     return breaks
 
 
+DROPS_REL = Path(".hsm") / "ledger.drops.jsonl"
+
+
+def record_drop(reason: str, vault: Path | str | None = None) -> None:
+    """Record that an event could NOT be recorded.
+
+    An audit log with invisible gaps is the exact defect this exists to prevent, so a
+    failed append has to leave a mark. Deliberately does NOT take `vault_lock`: the
+    lock timing out is one of the likeliest reasons we are here, and a drop handler
+    that can be blocked by the same contention is not a drop handler.
+
+    Best-effort by design. If even this fails there is nothing safe left to do inside
+    a hook that must not disturb the session.
+    """
+    try:
+        root = vaultlib._resolve(vault)
+        p = root / DROPS_REL
+        p.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(
+            {"ts": provenance.now_ts(), "reason": str(reason)[:300]},
+            sort_keys=True, separators=(",", ":"),
+        ) + "\n"
+        fd = os.open(str(p), os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        try:
+            os.write(fd, line.encode("utf-8"))
+        finally:
+            os.close(fd)
+    except BaseException:      # noqa: BLE001 - see docstring
+        pass
+
+
+def read_drops(vault: Path | str | None = None) -> list[dict]:
+    p = vaultlib._resolve(vault) / DROPS_REL
+    if not p.exists():
+        return []
+    out = []
+    for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        try:
+            out.append(json.loads(line))
+        except ValueError:
+            out.append({"ts": None, "reason": "unparseable drop record"})
+    return out
+
+
 def checkpoint(vault: Path | str | None = None, key_path: Path | str | None = None) -> dict:
     """Sign the current head hash.
 
