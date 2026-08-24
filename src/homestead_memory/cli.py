@@ -462,7 +462,17 @@ def build_parser() -> argparse.ArgumentParser:
                     help="bundle path or OKF directory (default: format-specific path in cwd)")
     pe.add_argument("--format", default="homestead", choices=["homestead", "okf"],
                     help="export format (default: homestead)")
-    pe.set_defaults(func=cmd_export)
+    pe.add_argument("--evidence", action="store_true",
+                    help="export an auditor-verifiable EvidencePack of the agent ledger")
+    pe.add_argument("--since", default=None, metavar="TS",
+                    help="only records at/after this timestamp (retention window)")
+    pe.add_argument("--until", default=None, metavar="TS",
+                    help="only records at/before this timestamp")
+    pe.add_argument("--from-seq", type=int, default=None, metavar="N",
+                    help="only records at/after this sequence number (exact slicing)")
+    pe.add_argument("--to-seq", type=int, default=None, metavar="N",
+                    help="only records at/before this sequence number")
+    pe.set_defaults(func=lambda a: cmd_export_evidence(a) if a.evidence else cmd_export(a))
 
     pim = sub.add_parser("import", help="import memories from Mem0, Zep, JSON, Homestead, or OKF")
     pim.add_argument("source", help="JSON export, Homestead bundle, OKF markdown, or directory")
@@ -513,6 +523,29 @@ def build_parser() -> argparse.ArgumentParser:
     ps.set_defaults(func=cmd_serve)
 
     return p
+
+
+def cmd_export_evidence(args) -> int:
+    from .core import evidence
+
+    try:
+        res = evidence.build_pack(args.path, args.out, since=args.since, until=args.until,
+                                  from_seq=args.from_seq, to_seq=args.to_seq)
+    except ValueError as e:
+        print(f"hsm export --evidence: {e}", file=sys.stderr)
+        return 1
+
+    print(f"EvidencePack: {res['pack']}")
+    print(f"  records: {res['records']}"
+          + ("  (windowed)" if res["windowed"] else "  (full ledger)"))
+    if res["windowed"]:
+        print(f"  anchor:  {res['anchor'][:16]}… (earlier records not included)")
+    if not res["signed"]:
+        # Say it here, loudly, rather than only in the manifest. An unsigned pack is a
+        # materially weaker artifact and the person exporting it should know now.
+        print("  UNSIGNED: install the [sign] extra to sign this pack", file=sys.stderr)
+    print(f"\n  verify with:  python3 {res['pack']}/verify_evidence.py")
+    return 0
 
 
 def cmd_hook(args) -> int:
