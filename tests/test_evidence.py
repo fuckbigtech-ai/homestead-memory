@@ -105,11 +105,25 @@ def _vault_with_records(tmp_path, n=5):
 
 
 def _verify(pack: Path, *args) -> subprocess.CompletedProcess:
-    """Run the bundled verifier the way an auditor would: clean env, nothing importable
-    from this project, no PYTHONPATH."""
+    """Run the bundled verifier the way an auditor would: nothing from this project
+    importable, and cwd elsewhere so no accidental relative import.
+
+    Inherit the environment and REMOVE PYTHONPATH rather than building one from
+    scratch. Caught by CI on windows/py3.10: an env of only PATH left Python unable to
+    start at all --
+
+        Fatal Python error: _Py_HashRandomization_Init: failed to get random numbers
+
+    because Windows needs SYSTEMROOT to reach the OS CSPRNG. The verifier never ran, so
+    stdout was empty and every downstream assertion failed for the wrong reason. A test
+    that strips the environment into a vacuum is testing the vacuum.
+    """
+    env = dict(os.environ)
+    env.pop("PYTHONPATH", None)
+    root = Path(sys.executable).anchor or "/"
     return subprocess.run(
         [sys.executable, str(pack / "verify_evidence.py"), str(pack), *args],
-        capture_output=True, text=True, cwd="/", env={"PATH": os.environ.get("PATH", "")},
+        capture_output=True, text=True, cwd=root, env=env,
     )
 
 
