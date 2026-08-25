@@ -25,10 +25,51 @@ hsm verify --demo
 #    🔴 [self_contradiction] the note argues with itself about its own status
 #    🔴 [uncited_claim]      a distilled claim has no source citation
 #    🔴 [dangling_citation]  a cited source no longer exists
-#    ⚠️  [broken_link]        a reference points at a deleted note
+#    ⚠️  [broken_link]        a reference points at a note that isn't there
 ```
 
 `hsm verify` exits non-zero on rot — it gates CI and cron like a test suite.
+
+## What did your agent actually do?
+
+Agents fail quietly. The run reports success, the tool returns 200, and the thing you
+asked for did not happen. There is usually no record to contradict it.
+
+```bash
+hsm hook --install     # prints a Claude Code hook; you paste it, nothing is edited for you
+hsm watch              # what your agent did, in order
+
+#     0  14:02:11  Bash           npm test
+#     1  14:02:19  Read           src/api/billing.py
+#     2  14:02:24  Edit           src/api/billing.py
+```
+
+Every entry is hash-chained to the one before it, so editing, deleting, or reordering
+any record breaks every hash after it. `hsm verify` reports the break at the exact
+index. Sign it and a wholly rebuilt chain is caught too.
+
+**This is a file, not a platform.** Agent observability tools are far richer than this
+and they want a deployment: the self-hosted ones document a production floor of several
+services and roughly 16 GB of RAM. This is `pip install`, one hook line, and a JSONL
+file on your disk. Different job. If you need dashboards, evals, and span analytics,
+use one of those. If you want a record you can grep and prove, use this.
+
+Secret-shaped values are redacted and payloads truncated to a 200-character head, with
+a SHA-256 of the full original kept so the evidence survives redaction. That is a
+mitigation, not a guarantee: no pattern list is complete.
+
+```bash
+hsm export --evidence  # a pack anyone can verify with no install at all
+```
+
+The pack carries the records, the signature, the public key, an integrity report, and a
+standard-library verifier a third party can read in full and run. It states what it does
+NOT prove, including that a signature only establishes origin if you already know which
+key to expect.
+
+**Capture is Claude Code only right now.** The MCP integration below works anywhere MCP
+does; the hook that records *every* tool call uses a Claude Code `PostToolUse` hook.
+Cursor and Codex need their own mechanisms and those are not built yet.
 
 ## Quickstart (60 seconds)
 
@@ -191,7 +232,7 @@ session = HomesteadSession(memory, session_id="user-123")
 agent_tools = function_tools(memory)
 ```
 
-**Claude Code / Desktop / Cursor** (MCP):
+**Claude Code / Desktop / Cursor** (MCP: memory tools, not action capture):
 
 ```bash
 claude mcp add homestead-memory -- hsm mcp ~/my-vault
