@@ -159,8 +159,14 @@ only in git-backed vaults and DISCLOSES when it cannot run instead of scoring cl
 
 **Comparability.** A v1.3 `--deep` score is not directly comparable to a v1.2 `--deep`
 score on a vault that has a ledger or deleted notes. Non-deep scores are unaffected. The
-published fixture scores are unchanged and re-verified under v1.3: **clean 100 / poisoned 92**, and a test now asserts both the values and that clean still exceeds
+published fixture scores were unchanged under v1.3 and re-verified as **clean 92 /
+poisoned 85**, with a test asserting both the values and that clean still exceeds
 poisoned, because a benchmark that stops discriminating has stopped being one.
+
+> Corrected in v1.4: those numbers were only reproducible on a machine with qmd
+> installed. The environment dependency was invisible until CI ran the suite on a host
+> without it. The figures above are what v1.3 reported, kept as written so this changelog
+> records what was true at the time rather than what we wish had been. See v1.4.
 
 ### v1.2 (2026-07-30) — partially closed
 
