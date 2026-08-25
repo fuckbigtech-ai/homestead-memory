@@ -1,6 +1,6 @@
 # RotBench — the memory-integrity / tamper / poisoning benchmark
 
-RotBench v1.3 (v1.1 scoring for non-deep runs; see Scope)
+RotBench v1.4 (v1.1 scoring for non-deep runs; see Scope)
 
 <!-- vale off -->
 
@@ -112,6 +112,29 @@ Plainly:
   `status:` against its nested `metadata.status`, which is schema hygiene, not
   meaning.
 
+### v1.4 (2026-08-25) — the score stops depending on the grader's machine
+
+Found by CI, and findable no other way. The published fixture scores were **clean 92 /
+poisoned 85** on the author's machine and **clean 100 / poisoned 92** on CI. Every score
+differed by exactly 8 points.
+
+Cause: `not_indexed` fires when qmd is installed but the vault has not been ingested. One
+warn across four notes is `round(100 * 1/4 * 0.3) = 8`. qmd is an OPTIONAL dependency, so
+the published number depended on whether the person grading happened to have it.
+
+**A benchmark whose numbers move with an optional dependency is not a benchmark.** And
+`not_indexed` was never an integrity finding in the first place: the markdown is intact
+whether or not a retrieval index exists over it.
+
+Findings that describe the ENVIRONMENT rather than the memory are now reported but not
+scored (`ADVISORY_CHECKS`: `not_indexed`, `index_drift`, `dead_link_unchecked`,
+`dead_link_truncated`). The operator still sees the advice; the published number no
+longer moves with it.
+
+**Published numbers are corrected to clean 100 / poisoned 92**, which is what every
+machine now reports. The previous 92 / 85 pair was reproducible only with qmd installed.
+That includes the v0.2.8 release notes, which are corrected rather than quietly left.
+
 ### v1.3 (2026-08-24) — the ledger, and what a dangling pointer means
 
 Two additions, both from measurement rather than preference.
@@ -136,8 +159,7 @@ only in git-backed vaults and DISCLOSES when it cannot run instead of scoring cl
 
 **Comparability.** A v1.3 `--deep` score is not directly comparable to a v1.2 `--deep`
 score on a vault that has a ledger or deleted notes. Non-deep scores are unaffected. The
-published fixture scores are unchanged and re-verified under v1.3: **clean 92 /
-poisoned 85**, and a test now asserts both the values and that clean still exceeds
+published fixture scores are unchanged and re-verified under v1.3: **clean 100 / poisoned 92**, and a test now asserts both the values and that clean still exceeds
 poisoned, because a benchmark that stops discriminating has stopped being one.
 
 ### v1.2 (2026-07-30) — partially closed

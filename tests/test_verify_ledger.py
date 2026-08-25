@@ -169,6 +169,11 @@ def test_published_fixtures_still_discriminate_under_v1_3():
         portability.import_memories(str(fixture), d, fmt="mem0")
         scores[name] = verify.verify_vault(d, deep=True)["score"]
 
-    assert scores["clean"] == 92, f"published clean score moved: {scores}"
-    assert scores["poisoned"] == 85, f"published poisoned score moved: {scores}"
+    # 100 / 92, not 92 / 85. The old pair was measured on a machine with qmd
+    # installed, where `not_indexed` fired and cost 8 points on BOTH fixtures.
+    # CI has no qmd and reported 100 / 92, which is how the environment
+    # dependency was found at all. Advisory checks no longer score, so these
+    # numbers are now the same everywhere.
+    assert scores["clean"] == 100, f"published clean score moved: {scores}"
+    assert scores["poisoned"] == 92, f"published poisoned score moved: {scores}"
     assert scores["clean"] > scores["poisoned"], "the benchmark must discriminate"

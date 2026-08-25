@@ -44,7 +44,30 @@ _STALE_SOURCE_DAYS = 90   # a citation whose source note is this old = stale evi
 # directly comparable to a v1.1 --deep score on the same vault. Non-deep scores
 # are unaffected. Bump the version rather than let published numbers drift
 # against a moving definition.
-ROTBENCH_VERSION = "v1.3"
+# Findings that describe the ENVIRONMENT rather than the memory. Reported, never scored.
+#
+# Found by CI on 2026-08-25, which is the only reason it was found at all: the published
+# fixture scores were clean 92 / poisoned 85 on the author's machine and clean 100 /
+# poisoned 92 on CI. Every score differed by exactly 8 points, because `not_indexed`
+# fires when qmd is installed but the vault has not been ingested, and one warn over
+# four notes is round(100 * 1/4 * 0.3) = 8.
+#
+# A benchmark whose numbers move when an OPTIONAL dependency is present is not a
+# benchmark. And `not_indexed` is not an integrity defect in the first place: the
+# markdown is intact whether or not a retrieval index exists over it. Same reasoning for
+# the dead-link coverage notices, which report what we could not check rather than
+# anything about the vault.
+#
+# These still appear in `findings` so the operator sees the advice. They just do not
+# move the number that gets published.
+ADVISORY_CHECKS = frozenset({
+    "not_indexed",           # qmd present but vault not ingested: a suggestion
+    "index_drift",           # index staleness is retrieval config, not memory integrity
+    "dead_link_unchecked",   # we could not check, which is about us
+    "dead_link_truncated",
+})
+
+ROTBENCH_VERSION = "v1.4"
 
 # distilled-note grammar: `- field: value (source: path.md)` and its changelog lines.
 # Value stops at the FIRST '(source:' so a multi-source bullet doesn't fold a citation
@@ -572,13 +595,14 @@ def verify_vault(vault: Path | str | None = None, deep: bool = False,
 
     fails = [x for x in findings if x.level == "fail"]
     warns = [x for x in findings if x.level == "warn"]
+    scored_warns = [x for x in warns if x.check not in ADVISORY_CHECKS]
     # Scale-invariant score = % of notes with intact integrity, lightly eroded by
     # the warn rate. A vault with any integrity FAIL is stamped "ROT DETECTED"
     # regardless of score (one contradicting note is still rot).
     n = len(notes) or 1
     unhealthy = {x.note for x in fails}
     clean_frac = 1 - len(unhealthy) / n
-    warn_pen = min(15, round(100 * (len(warns) / n) * 0.3))
+    warn_pen = min(15, round(100 * (len(scored_warns) / n) * 0.3))
     score = max(0, round(100 * clean_frac) - warn_pen)
     ok = (not fails) and score >= 85
     stamp = "MEMORY INTACT" if ok else "ROT DETECTED"
