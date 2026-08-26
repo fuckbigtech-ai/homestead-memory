@@ -67,8 +67,14 @@ def test_a_path_with_spaces_survives_the_shell(monkeypatch, tmp_path, capsys):
 
     cmd = _command(_snippet(capsys))
     argv = shlex.split(cmd, posix=(os.name != "nt"))
-    assert argv[0] == str(spaced), f"quoting lost the path: {cmd!r} -> {argv!r}"
+    # In non-posix mode shlex KEEPS the quotes it split on, so the Windows form arrives
+    # as '"C:\\...\\hsm"'. That is correct output for cmd.exe; only the comparison here
+    # needs normalising. Caught by CI on windows-latest, not locally: this test was
+    # written and run on macOS only, which is the same blind spot that shipped the bare
+    # `hsm` in the first place.
+    assert argv[0].strip('"') == str(spaced), f"quoting lost the path: {cmd!r} -> {argv!r}"
     assert argv[1:] == ["hook"]
+    assert " " in argv[0], "a path containing a space must stay one shell word"
 
 
 def test_the_explicit_timeout_is_still_there(capsys):
