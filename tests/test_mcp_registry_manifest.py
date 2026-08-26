@@ -114,3 +114,18 @@ def test_registry_constraints_that_the_official_validator_enforces():
             assert pkg["registryBaseUrl"] == "https://pypi.org", (
                 "the registry accepts https://pypi.org only"
             )
+
+
+def test_the_package_reports_the_same_version_it_ships():
+    """The fourth pin, which nothing guarded until 0.3.2.
+
+    server.json is checked against pyproject above, but `__init__.__version__` was not
+    checked against anything. It is what `hsm --version` prints and what a bug report
+    quotes, so drift there means a user tells you they are on a version that was never
+    built. Four hand-edited pins in a release is exactly where that happens.
+    """
+    from homestead_memory import __version__
+    assert __version__ == _pyproject_version(), (
+        f"__init__.__version__ is {__version__} but pyproject says {_pyproject_version()}; "
+        f"`hsm --version` would misreport and bug reports would cite a phantom release"
+    )
