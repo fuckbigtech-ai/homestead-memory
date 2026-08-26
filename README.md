@@ -9,52 +9,53 @@
 
 **Stop renting your mind.**
 
-Local-first, verifiable AI memory. Your notes stay plain markdown you can read,
-`git diff`, and own, and the memory **catches its own rot, tampering, and poisoning.**
+**A tamper-evident record of what your AI agent actually did**, in a local file, that
+someone who does not trust you can verify.
 
-Every other memory layer asks you to *hope* it remembers. This one lets you
-*watch it catch the rot, live:*
+Agents fail quietly. The run reports success, the tool returns 200, and the thing you
+asked for did not happen. There is usually no record to contradict it. This keeps one,
+and every entry is hash-chained to the one before it, so *see it catch a forged record,
+live:*
 
-![hsm verify --demo: a clean vault scores MEMORY INTACT 100/100, then rot is planted and caught live: ROT DETECTED 0/100 with every finding named](docs/demo.gif)
+![hsm watch --demo: three tool calls are recorded in order, then one record is edited in place and the chain reports a break at the exact index, exiting nonzero](docs/demo-watch.gif)
 
 ```bash
 pip install homestead-memory      # Python 3.10+, macOS / Linux / Windows
-npm install -g @tobilu/qmd@2.1.0 # optional hybrid retrieval runtime
 
-hsm verify --demo
-# ① a clean vault           ✅  MEMORY INTACT — 100/100
-# ② rot is planted…         🔴  ROT DETECTED —   0/100
-#    🔴 [self_contradiction] the note argues with itself about its own status
-#    🔴 [uncited_claim]      a distilled claim has no source citation
-#    🔴 [dangling_citation]  a cited source no longer exists
-#    ⚠️  [broken_link]        a reference points at a note that isn't there
+hsm watch --demo
+#      0  14:02:11  Bash    npm test
+#      1  14:02:19  Read    src/api/billing.py
+#      2  14:02:24  Edit    src/api/billing.py
+#
+# ② now someone edits record 1…
+#   !! chain break at index 1: hash_mismatch
+#      record content does not match its own hash (edited in place)
+#   exit 1  ·  gate it in CI like a test
 ```
 
 > **Got `No matching distribution found`?** macOS still ships Python 3.9 as its built-in
 > `python3`, and this needs 3.10+. Nothing is wrong with the package. Either use a newer
 > Python, or skip installing entirely:
-> `uvx --from homestead-memory hsm verify --demo`
+> `uvx --from homestead-memory hsm watch --demo`
 > ([uv](https://docs.astral.sh/uv/) fetches a suitable Python for you.)
 
-`hsm verify` exits non-zero on rot — it gates CI and cron like a test suite.
-
-## What did your agent actually do?
-
-Agents fail quietly. The run reports success, the tool returns 200, and the thing you
-asked for did not happen. There is usually no record to contradict it.
+## Record your own agent
 
 ```bash
 hsm hook --install     # prints a Claude Code hook; you paste it, nothing is edited for you
 hsm watch              # what your agent did, in order
-
-#     0  14:02:11  Bash           npm test
-#     1  14:02:19  Read           src/api/billing.py
-#     2  14:02:24  Edit           src/api/billing.py
 ```
 
 Every entry is hash-chained to the one before it, so editing, deleting, or reordering
-any record breaks every hash after it. `hsm verify` reports the break at the exact
-index. Sign it and a wholly rebuilt chain is caught too.
+any record breaks every hash after it. `hsm watch` reports the break at the exact index
+and exits non-zero. Sign it and a wholly rebuilt chain is caught too.
+
+**What it costs you: about 68ms per tool call** (median; 92ms p95, measured on an M3 Pro
+with a 4KB tool response). The hook runs as a fresh process on every call your agent
+makes, so on a 100-call session that is roughly 7 seconds spread across the run. Almost
+all of it is Python interpreter and import startup rather than the recording itself.
+If that is too much for your loop, do not install the hook: the number is here so you can
+decide before you find out.
 
 **This is a file, not a platform.** Agent observability tools are far richer than this
 and they want a deployment: the self-hosted ones document a production floor of several
@@ -74,6 +75,30 @@ The pack carries the records, the signature, the public key, an integrity report
 standard-library verifier a third party can read in full and run. It states what it does
 NOT prove, including that a signature only establishes origin if you already know which
 key to expect.
+
+## And the memory it reads is yours too
+
+The same tool owns the memory your agent reads and writes: plain markdown you can read,
+`git diff`, and walk away with. It **catches its own rot, tampering, and poisoning** with
+mechanical checks rather than an LLM judge, scores it 0 to 100, and exits non-zero so it
+gates CI and cron like a test suite.
+
+![hsm verify --demo: a clean vault scores MEMORY INTACT 100/100, then rot is planted and caught live: ROT DETECTED 0/100 with every finding named](docs/demo.gif)
+
+```bash
+npm install -g @tobilu/qmd@2.1.0  # optional hybrid retrieval runtime
+
+hsm verify --demo
+# ① a clean vault           ✅  MEMORY INTACT — 100/100
+# ② rot is planted…         🔴  ROT DETECTED —   0/100
+#    🔴 [self_contradiction] the note argues with itself about its own status
+#    🔴 [uncited_claim]      a distilled claim has no source citation
+#    🔴 [dangling_citation]  a cited source no longer exists
+#    ⚠️  [broken_link]        a reference points at a note that isn't there
+```
+
+That scoring is [RotBench](benchmarks/ROTBENCH.md), published as an open spec so the
+number is reproducible rather than self-reported.
 
 **Capture is Claude Code only right now.** The MCP integration below works anywhere MCP
 does; the hook that records *every* tool call uses a Claude Code `PostToolUse` hook.

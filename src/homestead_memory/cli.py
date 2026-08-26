@@ -500,6 +500,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     pw = sub.add_parser("watch", help="show what your agent actually did (the local ledger)")
     pw.add_argument("path", nargs="?", default=None)
+    pw.add_argument("--demo", action="store_true",
+                    help="record three calls in a throwaway vault, tamper one, catch it")
     pw.add_argument("-n", type=int, default=30, help="how many records to show (0 = all)")
     pw.add_argument("--tool", default=None, help="only this tool, e.g. Bash")
     pw.add_argument("--session", default=None, help="only this session id")
@@ -657,9 +659,49 @@ def _explain_no_records(total: int) -> None:
     print("  3. records are going to another vault. check `hsm watch <vault>`.")
 
 
+def _print_ledger_rows(records) -> None:
+    """The ONE place a ledger row is formatted.
+
+    Shared with `hsm watch --demo` deliberately. The README embeds a recording of that
+    demo, so a demo that formatted its own output could drift from what the tool really
+    prints, and a drifted demo is a fabricated screenshot. Keeping one formatter makes
+    that impossible rather than merely unlikely.
+    """
+    for r in records:
+        when = str(r.get("ts", ""))[11:19]
+        tgt = r.get("target") or "?"
+        summ = r.get("summary") or ""
+        print(f"  {r.get('seq'):>5}  {when}  {tgt:<14} {summ[:70]}")
+
+
+def _print_chain_problems(breaks, drops) -> int:
+    """Report breaks and drops on stderr. Returns the exit code.
+
+    Flushes stdout first. stderr is unbuffered and stdout is not, so without this the
+    break line jumps AHEAD of the records it refers to whenever output is not a tty,
+    which is every pipe, every CI log, and the demo recording. Found while building
+    `watch --demo`: the warning appeared before the rows that caused it.
+    """
+    sys.stdout.flush()
+    if breaks or drops:
+        print()
+        sys.stdout.flush()
+    for b in breaks[:5]:
+        print(f"  !! chain break at index {b.index}: {b.kind} - {b.detail}", file=sys.stderr)
+    if len(breaks) > 5:
+        print(f"  !! ...and {len(breaks) - 5} more chain breaks", file=sys.stderr)
+    if drops:
+        print(f"  !! {len(drops)} event(s) failed to record - the log has known gaps",
+              file=sys.stderr)
+    return 1 if (breaks or drops) else 0
+
+
 def cmd_watch(args) -> int:
     """Show what the agent actually did."""
     from .core import ledger
+
+    if getattr(args, "demo", False):
+        return run_watch_demo()
 
     recs = ledger.read_all(args.path)
     total = len(recs)                                # before filtering, so we can tell
@@ -674,24 +716,65 @@ def cmd_watch(args) -> int:
     else:
         if not shown:
             _explain_no_records(total)
-        for r in shown:
-            when = str(r.get("ts", ""))[11:19]
-            tgt = r.get("target") or "?"
-            summ = r.get("summary") or ""
-            print(f"  {r.get('seq'):>5}  {when}  {tgt:<14} {summ[:70]}")
+        _print_ledger_rows(shown)
 
-    breaks = ledger.verify_chain(args.path)
-    drops = ledger.read_drops(args.path)
-    if breaks or drops:
-        print()
-    for b in breaks[:5]:
-        print(f"  !! chain break at index {b.index}: {b.kind} - {b.detail}", file=sys.stderr)
-    if len(breaks) > 5:
-        print(f"  !! ...and {len(breaks) - 5} more chain breaks", file=sys.stderr)
-    if drops:
-        print(f"  !! {len(drops)} event(s) failed to record - the log has known gaps",
-              file=sys.stderr)
-    return 1 if (breaks or drops) else 0
+    return _print_chain_problems(ledger.verify_chain(args.path), ledger.read_drops(args.path))
+
+
+def run_watch_demo() -> int:
+    """Record three tool calls in a throwaway vault, tamper one, catch it. Nonzero exit.
+
+    Mirrors `verify --demo` (core/verify.py), which exists because a tool nobody can try
+    in one command is a tool nobody tries. After the ledger became the lead product, it
+    was the ONLY headline feature with no zero-setup path: seeing it otherwise meant
+    installing a hook into your agent and running a real session.
+
+    Lives here rather than in core/ledger.py on purpose. ledger.py has zero print calls
+    and should stay a pure data module; verify.run_demo sits in verify.py precisely
+    because that module already renders. The records below go through the real
+    ledger.append() and the real ledger.verify_chain(), and render through the same
+    _print_ledger_rows() that `hsm watch` uses, so this cannot show output the tool would
+    not produce.
+    """
+    import tempfile
+    from .core import capture, ledger
+
+    # Real harness payloads, taken through the SAME path cmd_hook uses
+    # (capture.from_hook_payload -> ledger.append). Hand-building records here would let
+    # the demo show a record shape the tool never produces.
+    payloads = [
+        {"tool_name": "Bash", "tool_input": {"command": "npm test"},
+         "tool_response": {"stdout": "3 passing"}},
+        {"tool_name": "Read", "tool_input": {"file_path": "src/api/billing.py"},
+         "tool_response": {"ok": True}},
+        {"tool_name": "Edit", "tool_input": {"file_path": "src/api/billing.py"},
+         "tool_response": {"ok": True}},
+    ]
+
+    with tempfile.TemporaryDirectory(prefix="fbt-watch-demo-") as d:
+        v = Path(d)
+        (v / ".hsm").mkdir(parents=True, exist_ok=True)
+        for p in payloads:
+            p = {**p, "session_id": "demo", "cwd": str(v)}
+            ledger.append(vault=v, **capture.from_hook_payload(p))
+
+        print("① three tool calls your agent made, in the order it made them:\n")
+        _print_ledger_rows(ledger.read_all(v))
+
+        print("\n② now someone edits record 1, the way a log without a chain")
+        print("   would silently allow. every hash after it breaks:\n")
+        path = v / ledger.LEDGER_REL
+        lines = path.read_text(encoding="utf-8").splitlines()
+        rec = json.loads(lines[1])
+        rec["summary"] = "src/api/billing.py   # nothing to see here"
+        lines[1] = json.dumps(rec, sort_keys=True, separators=(",", ":"))
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+        _print_ledger_rows(ledger.read_all(v))
+        code = _print_chain_problems(ledger.verify_chain(v), ledger.read_drops(v))
+
+        print("\n③ it names the exact index. nothing left the machine to prove it.")
+        return code
 
 
 def _hsm_executable() -> str:

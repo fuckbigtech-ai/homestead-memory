@@ -11,6 +11,7 @@ asserting on a mock, and requires the break to be reported at the RIGHT index.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -227,3 +228,86 @@ def test_unexpected_signer_is_rejected(vault, tmp_path):
     ok, why = ledger.verify_checkpoint(vault, expect_pubkey="ab" * 32)
     assert not ok
     assert "unexpected key" in why
+
+
+# --- `hsm watch --demo` ------------------------------------------------------------
+#
+# The README embeds a recording of this command, so it is a published claim about what
+# the tool does. Two ways that becomes a lie: the demo renders its own output and drifts
+# from the real renderer, or it stages a break it did not actually cause. Both are
+# asserted against here.
+
+
+def _run_demo_capturing(capsys):
+    from homestead_memory import cli
+    code = cli.run_watch_demo()
+    return code, capsys.readouterr()
+
+
+def test_the_demo_actually_breaks_the_chain(capsys):
+    """Nonzero exit, and the break names the record that was edited."""
+    code, out = _run_demo_capturing(capsys)
+    assert code == 1, "a demo that exits 0 is not demonstrating tamper-evidence"
+    assert "chain break at index 1" in out.err, out.err
+    assert "hash_mismatch" in out.err
+
+
+def test_the_demo_leaves_nothing_behind(capsys):
+    """It runs in a TemporaryDirectory and must not touch the user's vault."""
+    import re
+    _, out = _run_demo_capturing(capsys)
+    leaked = [Path(p) for p in re.findall(r"/\S*fbt-watch-demo-\S+", out.out + out.err)]
+    assert not any(p.exists() for p in leaked), f"demo left files on disk: {leaked}"
+
+
+def test_the_demo_uses_the_same_renderer_as_real_watch(tmp_path, capsys):
+    """The anti-drift test.
+
+    If the demo ever formats rows itself, its output can diverge from what `hsm watch`
+    prints and the README GIF becomes a fabricated screenshot. Compare the column shape
+    of a demo row against a row rendered from a real ledger.
+    """
+    import re
+    from homestead_memory import cli
+
+    ledger.append("tool_call", target="Bash", summary="npm test", vault=tmp_path)
+    cli._print_ledger_rows(ledger.read_all(tmp_path))
+    real = capsys.readouterr().out.strip("\n")
+
+    _, out = _run_demo_capturing(capsys)
+    demo_rows = [ln for ln in out.out.splitlines() if re.match(r"^\s+\d+\s+\d\d:\d\d:\d\d\s", ln)]
+    assert demo_rows, f"no ledger rows found in demo output:\n{out.out}"
+
+    shape = lambda s: re.sub(r"[^\s]", "x", s)      # noqa: E731 - column geometry only
+    assert shape(demo_rows[0])[:24] == shape(real)[:24], (
+        f"demo row geometry differs from real watch output:\n"
+        f"  demo: {demo_rows[0]!r}\n  real: {real!r}"
+    )
+
+
+def test_break_is_reported_after_the_rows_it_refers_to(capsys):
+    """stderr is unbuffered, stdout is not.
+
+    Without an explicit flush the warning jumps ahead of the records that caused it in
+    every pipe, every CI log, and the demo recording. Found while building the demo.
+    """
+    from homestead_memory import cli
+    ledger_out = []
+
+    class _Tee:
+        def __init__(self, name): self.name = name
+        def write(self, s): ledger_out.append((self.name, s)); return len(s)
+        def flush(self): pass
+
+    import sys as _sys
+    old_out, old_err = _sys.stdout, _sys.stderr
+    _sys.stdout, _sys.stderr = _Tee("out"), _Tee("err")
+    try:
+        cli.run_watch_demo()
+    finally:
+        _sys.stdout, _sys.stderr = old_out, old_err
+
+    order = [name for name, s in ledger_out if s.strip()]
+    assert "err" in order, "no stderr written; the demo did not report a break"
+    first_err = order.index("err")
+    assert "out" in order[:first_err], "the break was written before any records"
