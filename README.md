@@ -1,5 +1,7 @@
 # homestead-memory
 
+<!-- mcp-name: io.github.fuckbigtech-ai/homestead-memory -->
+
 [![PyPI](https://img.shields.io/pypi/v/homestead-memory)](https://pypi.org/project/homestead-memory/)
 [![CI](https://github.com/fuckbigtech-ai/homestead-memory/actions/workflows/ci.yml/badge.svg)](https://github.com/fuckbigtech-ai/homestead-memory/actions/workflows/ci.yml)
 [![Python](https://img.shields.io/pypi/pyversions/homestead-memory)](https://pypi.org/project/homestead-memory/)
