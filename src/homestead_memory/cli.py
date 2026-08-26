@@ -605,12 +605,65 @@ def cmd_hook(args) -> int:
     return 0
 
 
+def _hook_configured_in() -> str | None:
+    """Return the settings file that already configures an hsm hook, or None.
+
+    Without this, an empty ledger has one message for two opposite problems. The old
+    text always said "install the hook", which tells a user who DID install it to do
+    the thing they just did, and hides the real cause: a hook that is configured but
+    not firing.
+    """
+    home = Path.home()
+    candidates = [
+        home / ".claude" / "settings.json",
+        home / ".claude" / "settings.local.json",
+        Path.cwd() / ".claude" / "settings.json",
+        Path.cwd() / ".claude" / "settings.local.json",
+    ]
+    for p in candidates:
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, ValueError):
+            continue                                 # unreadable or not JSON: not evidence
+        if not isinstance(data, dict):
+            continue
+        hooks = data.get("hooks")
+        entries = (hooks or {}).get("PostToolUse") if isinstance(hooks, dict) else None
+        for entry in entries or []:
+            for h in (entry or {}).get("hooks", []) or []:
+                cmd = str((h or {}).get("command", ""))
+                if "hsm" in cmd and "hook" in cmd:
+                    return str(p)
+    return None
+
+
+def _explain_no_records(total: int) -> None:
+    """Say which of the two possible causes this is, instead of guessing one."""
+    if total:
+        print(f"no records match that filter. the ledger holds {total} record(s).")
+        return
+
+    where = _hook_configured_in()
+    if not where:
+        print("no records yet. install the hook with `hsm hook --install`.")
+        return
+
+    # The dangerous case: the user believes recording is on, and it is not.
+    print(f"no records yet, but a hook IS configured in {where}.")
+    print("so the hook is not firing. usual causes, in order:")
+    print("  1. the command there is not resolvable by the hook's shell.")
+    print(f"     this hsm lives at: {_hsm_executable()}")
+    print("  2. no tool call has happened since you added it. run one, then retry.")
+    print("  3. records are going to another vault. check `hsm watch <vault>`.")
+
+
 def cmd_watch(args) -> int:
     """Show what the agent actually did."""
     from .core import ledger
 
     recs = ledger.read_all(args.path)
-    if args.session:
+    total = len(recs)                                # before filtering, so we can tell
+    if args.session:                                 # "empty ledger" from "filtered out"
         recs = [r for r in recs if r.get("session") == args.session]
     if args.tool:
         recs = [r for r in recs if r.get("target") == args.tool]
@@ -620,7 +673,7 @@ def cmd_watch(args) -> int:
         print(json.dumps(shown, indent=2))
     else:
         if not shown:
-            print("no records yet. install the hook with `hsm hook --install`.")
+            _explain_no_records(total)
         for r in shown:
             when = str(r.get("ts", ""))[11:19]
             tgt = r.get("target") or "?"
@@ -641,6 +694,43 @@ def cmd_watch(args) -> int:
     return 1 if (breaks or drops) else 0
 
 
+def _hsm_executable() -> str:
+    """Absolute path to THIS hsm, for the hook snippet.
+
+    Measured, not assumed: a bare `hsm` in the snippet only works if the shell the
+    harness spawns for the hook happens to have it on PATH. For the ordinary
+    `python -m venv` + `pip install homestead-memory` it does NOT, because the venv is
+    not active in that shell. The hook then fails, PostToolUse failures are invisible
+    to the user, and `hsm watch` reports nothing.
+
+    That is exactly the silent-success defect this tool exists to catch, and this repo
+    has already shipped its own version of it once: a sibling hook read env vars the
+    harness never sent, so it quietly did nothing for weeks. Emitting an absolute path
+    costs nothing and removes the failure mode entirely.
+    """
+    import os
+    import shutil
+
+    name = "hsm.exe" if os.name == "nt" else "hsm"
+    argv0 = Path(sys.argv[0])
+    if argv0.is_absolute() and argv0.exists() and argv0.stem == "hsm":
+        return str(argv0)
+    beside = Path(sys.executable).parent / name      # console script sits by the interpreter
+    if beside.exists():
+        return str(beside)
+    return shutil.which("hsm") or "hsm"
+
+
+def _shell_quote(path: str) -> str:
+    """Quote a path for the command string the harness hands to a shell."""
+    import os
+    import shlex
+
+    if os.name == "nt":
+        return f'"{path}"' if " " in path else path
+    return shlex.quote(path)
+
+
 def cmd_hook_install(args) -> int:
     """Print the settings.json snippet. Deliberately does NOT edit the file.
 
@@ -649,6 +739,10 @@ def cmd_hook_install(args) -> int:
     it first, so we print it and let them paste it.
     """
     import json as _json
+    import shutil
+
+    exe = _hsm_executable()
+    command = f"{_shell_quote(exe)} hook"
 
     snippet = {
         "hooks": {
@@ -656,7 +750,7 @@ def cmd_hook_install(args) -> int:
                 "matcher": "*",
                 "hooks": [{
                     "type": "command",
-                    "command": "hsm hook",
+                    "command": command,
                     # Explicit, because the harness default is 600s. A hung hook
                     # inheriting that would stall a session for ten minutes.
                     "timeout": 5,
@@ -668,6 +762,21 @@ def cmd_hook_install(args) -> int:
     print(_json.dumps(snippet, indent=2))
     print("\nThen: hsm watch          # see what your agent did")
     print("      hsm watch --json   # machine-readable")
+
+    # Say why the path is absolute, so nobody "tidies" it back to a bare name.
+    on_path = shutil.which("hsm")
+    if exe != "hsm":
+        print(f"\nThe absolute path is deliberate: {exe}")
+        if not on_path:
+            print("`hsm` is not on PATH here, so a bare `hsm hook` would fail silently.")
+        else:
+            print("A bare `hsm hook` works only if the hook's shell has it on PATH,")
+            print("which a venv install does not guarantee. Absolute always resolves.")
+    else:
+        print("\nWARNING: could not resolve an absolute path to hsm, so the snippet uses")
+        print("a bare `hsm`. If the hook's shell lacks it on PATH it will fail silently.")
+        print("Verify with `hsm watch` after your next tool call.")
+
     print("\nRecords stay on this machine. Payloads are truncated and secret-shaped")
     print("values are redacted, but treat the ledger as sensitive: it describes your work.")
     return 0

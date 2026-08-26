@@ -18,7 +18,7 @@ Every other memory layer asks you to *hope* it remembers. This one lets you
 ![hsm verify --demo: a clean vault scores MEMORY INTACT 100/100, then rot is planted and caught live: ROT DETECTED 0/100 with every finding named](docs/demo.gif)
 
 ```bash
-pip install homestead-memory      # macOS / Linux / Windows (pure Python, zero deps)
+pip install homestead-memory      # Python 3.10+, macOS / Linux / Windows, zero deps
 npm install -g @tobilu/qmd@2.1.0 # optional hybrid retrieval runtime
 
 hsm verify --demo
@@ -29,6 +29,12 @@ hsm verify --demo
 #    🔴 [dangling_citation]  a cited source no longer exists
 #    ⚠️  [broken_link]        a reference points at a note that isn't there
 ```
+
+> **Got `No matching distribution found`?** macOS still ships Python 3.9 as its built-in
+> `python3`, and this needs 3.10+. Nothing is wrong with the package. Either use a newer
+> Python, or skip installing entirely:
+> `uvx --from homestead-memory hsm verify --demo`
+> ([uv](https://docs.astral.sh/uv/) fetches a suitable Python for you.)
 
 `hsm verify` exits non-zero on rot — it gates CI and cron like a test suite.
 

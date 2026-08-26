@@ -13,7 +13,15 @@ authors = [{ name = "Kinetic Labs" }]
 keywords = ["ai", "memory", "local-first", "agents", "verification", "rag", "homestead"]
 classifiers = [
     "License :: OSI Approved :: MIT License",
+    # Per-minor classifiers, not just ":: 3". PyPI's version filter and the
+    # pypi/pyversions badge read these, and "3" alone tells a visitor nothing about
+    # the 3.10 floor - which is the single most common install failure, because
+    # macOS still ships 3.9 as its built-in python3.
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
 ]
 # Core is stdlib-only. qmd (hybrid retrieval) is an optional external CLI dependency,
