@@ -1371,8 +1371,11 @@ wheels = [
 
 [[package]]
 name = "homestead-memory"
-version = "0.3.2"
+version = "0.3.3"
 source = { editable = "." }
+dependencies = [
+    { name = "cryptography" },
+]
 
 [package.optional-dependencies]
 api = [
@@ -1394,15 +1397,12 @@ litellm = [
 openai-agents = [
     { name = "openai-agents" },
 ]
-sign = [
-    { name = "cryptography" },
-]
 
 [package.metadata]
 requires-dist = [
     { name = "autogen-core", marker = "extra == 'autogen'", specifier = ">=0.4" },
     { name = "crewai", marker = "extra == 'crewai'", specifier = ">=0.70" },
-    { name = "cryptography", marker = "extra == 'sign'", specifier = ">=42" },
+    { name = "cryptography", specifier = ">=42" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.110" },
     { name = "langgraph", marker = "extra == 'langgraph'", specifier = ">=0.2" },
     { name = "litellm", marker = "extra == 'litellm'", specifier = ">=1.40" },

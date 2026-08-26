@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -293,3 +294,87 @@ def test_readme_states_the_key_pinning_limitation(pack):
 def test_the_bundled_verifier_is_byte_identical_to_the_tested_one(pack):
     """What ships must be what the suite exercises."""
     assert (pack / "verify_evidence.py").read_bytes() == Path(ev.__file__).read_bytes()
+
+
+# --- the verdict must describe the signature state it actually found ---------------
+#
+# Found 2026-08-26 by exporting a pack from a plain `pip install` (no [sign] extra) and
+# reading the output. The verifier printed a correct "signature: ABSENT" line and then
+# closed with "Records in this window are intact and signed."
+#
+# The cause: sig_ok starts as None, the ABSENT branch leaves it None, and the verdict
+# tested `if ok and sig_ok ...` before falling through to a generic `elif ok:` that
+# assumed a signature existed. Three real states, two branches.
+#
+# It survived because CI installs [sign], so no test ever produced an unsigned pack.
+# This is the last sentence an auditor reads, in the one artifact whose entire purpose
+# is to refuse to overclaim, so it gets the four states enumerated explicitly.
+
+
+@pytest.fixture()
+def unsigned_pack(tmp_path, monkeypatch):
+    """A pack built on a machine where signing was unavailable."""
+    monkeypatch.setattr(evidence, "_sign_window", lambda *a, **k: (None, None))
+    # Its own root: a test may take both fixtures, and `pack` already owns tmp_path/vault.
+    root = tmp_path / "unsigned-src"
+    root.mkdir()
+    v = _vault_with_records(root)
+    return Path(evidence.build_pack(v, tmp_path / "unsigned")["pack"])
+
+
+def _verdict(stdout: str) -> str:
+    assert "RESULT:" in stdout, stdout
+    return stdout.split("RESULT:", 1)[1]
+
+
+def test_an_unsigned_pack_is_never_called_signed(unsigned_pack):
+    """The bug. A correct ABSENT line above does not excuse the verdict below it."""
+    r = _verify(unsigned_pack)
+    assert (unsigned_pack / "ledger.sig").exists() is False
+    assert "signature:  ABSENT" in r.stdout, r.stdout
+    assert r.returncode == 0, "an unsigned pack is degraded, not failed"
+
+    verdict = _verdict(r.stdout)
+    # "unsigned" legitimately contains "signed", so only match the bare word.
+    assert not re.search(r"(?<!un)signed", verdict), (
+        f"verdict claims the pack is signed when it carries no signature:\n{verdict}"
+    )
+    assert "unsigned" in verdict.lower(), (
+        f"verdict never tells the reader the pack is unsigned:\n{verdict}"
+    )
+
+
+def test_no_signature_flag_does_not_produce_a_signed_verdict(pack):
+    """Same defect via a second door: --no-signature also leaves sig_ok as None."""
+    r = _verify(pack, "--no-signature")
+    verdict = _verdict(r.stdout)
+    assert not re.search(r"(?<!un)signed", verdict), (
+        f"skipping the signature check reported a signed verdict:\n{verdict}"
+    )
+
+
+@needs_crypto
+def test_each_signature_state_gets_its_own_verdict(pack, unsigned_pack):
+    """All four states, so a future refactor cannot collapse two of them again."""
+    pub = (pack / "pubkey.hex").read_text().strip()
+
+    pinned = _verdict(_verify(pack, "--pubkey", pub).stdout)
+    assert re.search(r"(?<!un)signed", pinned), "a key-pinned pack should say signed"
+    assert "SELF-ASSERTED" not in pinned
+
+    unpinned = _verdict(_verify(pack).stdout)
+    assert "SELF-ASSERTED" in unpinned, "an unpinned signature must be qualified"
+
+    absent = _verdict(_verify(unsigned_pack).stdout)
+    assert "unsigned" in absent.lower()
+
+    # invalid: corrupt the signature and require a FAIL rather than a soft verdict
+    sig = json.loads((pack / "ledger.sig").read_text())
+    sig["signature"] = ("0" * 128)
+    (pack / "ledger.sig").write_text(json.dumps(sig))
+    bad = _verify(pack)
+    assert bad.returncode == 1 and "RESULT:     FAIL" in bad.stdout, bad.stdout
+
+    assert len({pinned.strip(), unpinned.strip(), absent.strip()}) == 3, (
+        "two signature states produced identical verdict text"
+    )

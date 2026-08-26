@@ -18,7 +18,7 @@ Every other memory layer asks you to *hope* it remembers. This one lets you
 ![hsm verify --demo: a clean vault scores MEMORY INTACT 100/100, then rot is planted and caught live: ROT DETECTED 0/100 with every finding named](docs/demo.gif)
 
 ```bash
-pip install homestead-memory      # Python 3.10+, macOS / Linux / Windows, zero deps
+pip install homestead-memory      # Python 3.10+, macOS / Linux / Windows
 npm install -g @tobilu/qmd@2.1.0 # optional hybrid retrieval runtime
 
 hsm verify --demo
@@ -315,7 +315,9 @@ experiment instead. No number here is from a harness you can't run yourself.
 
 ## Design
 
-- **Cross-platform.** Pure Python, stdlib-only core. CI: ubuntu / macos / windows.
+- **Cross-platform.** Pure Python except for `cryptography`, which does the signing.
+  CI: ubuntu / macos / windows. **The pack's bundled verifier stays stdlib-only**, so a
+  recipient checks a pack with nothing installed, which is the part that matters.
 - **Degrades explicitly.** qmd 2.1+ is optional. MCP failure falls back to the
   dedicated CLI; qmd failure falls back to a read-only scan. Machine-readable output
   names the engine and reason instead of silently pretending the fast path worked.

@@ -19,7 +19,9 @@ jobs:
       matrix:
         # the cross-platform claim is a CI matrix, not a slogan
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python: ["3.10", "3.12"]
+        # Every minor the classifiers advertise. 3.11 and 3.13 were claimed in
+        # pyproject but tested nowhere, so the claim was true only until it wasn't.
+        python: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

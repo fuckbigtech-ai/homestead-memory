@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "homestead-memory"
-version = "0.3.2"
+version = "0.3.3"
 description = "Verifiable, local-first AI memory that catches rot, tampering, and poisoning. Plain markdown you own."
 readme = "README.md"
 license = { text = "MIT" }
@@ -24,9 +24,18 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
 ]
-# Core is stdlib-only. qmd (hybrid retrieval) is an optional external CLI dependency,
-# invoked as a subprocess; the store degrades to a direct markdown scan without it.
-dependencies = []
+# One dependency, and it is deliberate. Signing was an optional [sign] extra until
+# 0.3.3, which meant a plain `pip install` produced an UNSIGNED EvidencePack while the
+# README led on a record that proves it was not altered. The headline feature cannot sit
+# behind an extra nobody is told about.
+#
+# What this does NOT change: the pack's bundled verifier is still stdlib-only, so a
+# recipient still needs nothing installed to check a pack. That is the property the
+# product actually argues for, and it is untouched.
+#
+# qmd (hybrid retrieval) remains an optional external CLI, invoked as a subprocess; the
+# store degrades to a direct markdown scan without it.
+dependencies = ["cryptography>=42"]
 
 [project.urls]
 Homepage = "https://fuckbigtech.ai/lab"
@@ -36,7 +45,9 @@ Changelog = "https://github.com/fuckbigtech-ai/homestead-memory/releases"
 
 [project.optional-dependencies]
 api = ["fastapi>=0.110", "uvicorn>=0.27"]
-sign = ["cryptography>=42"]
+# Kept as a no-op alias since 0.3.3: signing moved into the core dependencies, but
+# `pip install "homestead-memory[sign]"` appears in the wild and must not start erroring.
+sign = []
 langgraph = ["langgraph>=0.2"]
 crewai = ["crewai>=0.70"]
 autogen = ["autogen-core>=0.4"]

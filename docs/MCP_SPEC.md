@@ -9,7 +9,8 @@ stdio-based skin over the same core ops.
 
 ## Design constraints
 
-- **Stdlib-only** (the zero-dependency claim holds): a minimal JSON-RPC 2.0 server
+- **Stdlib-only** (the MCP server itself pulls in nothing; the package's one dependency,
+  `cryptography`, is used for signing and is not touched here): a minimal JSON-RPC 2.0 server
   over stdio implementing the MCP subset that tool use requires — `initialize`,
   `notifications/initialized`, `tools/list`, `tools/call`, `ping`. No `mcp` SDK.
 - **Local trust model:** MCP stdio servers are launched by the client as a child

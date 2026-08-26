@@ -279,17 +279,42 @@ def main(argv=None) -> int:
     print()
     ok = not problems and (sig_ok is not False)
     print("RESULT:     PASS" if ok else "RESULT:     FAIL")
-    if ok and sig_ok and not expect_key:
+
+    # FOUR passing states, four verdicts. Collapsing any two of them is how this file
+    # once told a reader that an UNSIGNED pack was "intact and signed" (found
+    # 2026-08-26): sig_ok is None when there is no signature, None is falsy, so the
+    # unsigned case fell through to the wording written for a signed one. The
+    # `signature:` line above was already correct, which made it worse rather than
+    # better: the reader saw ABSENT and then a verdict contradicting it.
+    #
+    # This is the last sentence an auditor reads about an artifact whose only real
+    # claim is that it refuses to overclaim, so each state says exactly what it found.
+    limits = [
+        "            This does not establish that the agent performed the actions, nor",
+        "            that events missing from the ledger never happened. See README.md.",
+    ]
+    if ok and not check_sig:
+        print("            Records in this window are intact and internally consistent.")
+        print("            The signature was NOT CHECKED (--no-signature), so nothing")
+        print("            here speaks to the origin of this pack.")
+        print(*limits, sep="\n")
+    elif ok and sig_ok is None:
+        print("            Records in this window are intact and internally consistent,")
+        print("            and this pack is UNSIGNED. The chain shows that no record was")
+        print("            edited, deleted, or reordered in place, but a wholly rebuilt")
+        print("            chain would not be detected, and nothing here establishes who")
+        print("            produced it.")
+        print(*limits, sep="\n")
+    elif ok and not expect_key:
         print("            Records in this window are intact and internally consistent.")
         print("            The signature is SELF-ASSERTED: confirm pubkey.hex against a")
         print("            key you obtained separately before treating this as proof of")
-        print("            origin. This also does not establish that the agent performed")
-        print("            the actions, nor that events missing from the ledger never")
-        print("            happened. See README.md.")
+        print("            origin.")
+        print(*limits, sep="\n")
     elif ok:
-        print("            Records in this window are intact and signed. This does not")
-        print("            establish that the agent performed them, nor that events")
-        print("            missing from the ledger never happened. See README.md.")
+        print("            Records in this window are intact, and the head was signed by")
+        print("            the key you pinned.")
+        print(*limits, sep="\n")
     return 0 if ok else 1
 
 
