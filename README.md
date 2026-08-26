@@ -17,7 +17,10 @@ asked for did not happen. There is usually no record to contradict it. This keep
 and every entry is hash-chained to the one before it, so *see it catch a forged record,
 live:*
 
-![hsm watch --demo: three tool calls are recorded in order, then one record is edited in place and the chain reports a break at the exact index, exiting nonzero](docs/demo-watch.gif)
+<!-- Absolute URL, not `docs/demo-watch.gif`. This README is also the PyPI long_description,
+     and PyPI cannot resolve repo-relative paths: it rendered a broken-image icon where the
+     demo should be. GitHub resolves the absolute form fine, so one URL serves both. -->
+![hsm watch --demo: three tool calls are recorded in order, then one record is edited in place and the chain reports a break at the exact index, exiting nonzero](https://raw.githubusercontent.com/fuckbigtech-ai/homestead-memory/master/docs/demo-watch.gif)
 
 ```bash
 pip install homestead-memory      # Python 3.10+, macOS / Linux / Windows
@@ -83,7 +86,7 @@ The same tool owns the memory your agent reads and writes: plain markdown you ca
 mechanical checks rather than an LLM judge, scores it 0 to 100, and exits non-zero so it
 gates CI and cron like a test suite.
 
-![hsm verify --demo: a clean vault scores MEMORY INTACT 100/100, then rot is planted and caught live: ROT DETECTED 0/100 with every finding named](docs/demo.gif)
+![hsm verify --demo: a clean vault scores MEMORY INTACT 100/100, then rot is planted and caught live: ROT DETECTED 0/100 with every finding named](https://raw.githubusercontent.com/fuckbigtech-ai/homestead-memory/master/docs/demo.gif)
 
 ```bash
 npm install -g @tobilu/qmd@2.1.0  # optional hybrid retrieval runtime

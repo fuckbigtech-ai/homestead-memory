@@ -129,3 +129,22 @@ def test_the_package_reports_the_same_version_it_ships():
         f"__init__.__version__ is {__version__} but pyproject says {_pyproject_version()}; "
         f"`hsm --version` would misreport and bug reports would cite a phantom release"
     )
+
+
+def test_readme_images_are_absolute_urls():
+    """This README is also the PyPI long_description, and PyPI cannot resolve repo paths.
+
+    Found 2026-08-26 by fetching the live project page: the description contained
+    `errorIcon.svg` where the hero demo should be, because `![...](docs/demo.gif)` means
+    nothing to PyPI. GitHub happens to render relative paths, so the break was invisible
+    on the surface we look at and live on the surface strangers land on.
+    """
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    srcs = re.findall(r"!\[[^\]]*\]\(([^)\s]+)", readme)
+    assert srcs, "no images found in README; did the hero demo get dropped?"
+    relative = [s for s in srcs if not s.startswith("http")]
+    assert not relative, (
+        f"README image(s) use repo-relative paths and will render as a broken-image icon "
+        f"on PyPI: {relative}. Use "
+        f"https://raw.githubusercontent.com/fuckbigtech-ai/homestead-memory/master/<path>"
+    )
