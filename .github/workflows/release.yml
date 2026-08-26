@@ -44,6 +44,14 @@ jobs:
       id-token: write
     environment: release
     steps:
+      # MUST come before download-artifact: actions/checkout cleans the workspace by
+      # default, so running it second would delete the dist/ we just downloaded.
+      # This job had no checkout at all, so `mcp-publisher publish` ran in an empty
+      # workspace and died with "server.json not found" AFTER PyPI had already
+      # published. Caught on v0.3.2, which was the first tag to actually contain the
+      # registry step (v0.3.1 was tagged before it existed, so its green tick meant
+      # "the step is absent", not "the registry is up to date").
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: homestead-release-${{ github.ref_name }}
