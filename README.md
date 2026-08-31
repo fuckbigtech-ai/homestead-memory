@@ -53,6 +53,23 @@ Every entry is hash-chained to the one before it, so editing, deleting, or reord
 any record breaks every hash after it. `hsm watch` reports the break at the exact index
 and exits non-zero. Sign it and a wholly rebuilt chain is caught too.
 
+**Both phases are recorded, which is what makes it evidence rather than a log.** The hook
+captures the decision before a tool runs and the outcome after. A record of outcomes alone
+shows what happened; it cannot show that anything was authorised first. As
+[the IETF Agent Audit Trail draft](https://datatracker.ietf.org/doc/draft-sharif-agent-audit-trail/)
+puts it, "a denial that is only logged after execution provides no evidence that the
+denial was enforced".
+
+```bash
+hsm export --format aat     # the same ledger as draft-sharif-agent-audit-trail-01
+```
+
+That draft maps explicitly to EU AI Act Article 12, and this emits it **alongside** the
+native format rather than replacing it, so nothing already on disk changes. Where we
+differ we say so: it specifies ECDSA P-256, which the AAT export uses, while the native
+EvidencePack stays Ed25519 so its verifier can remain standard-library only and a
+recipient needs nothing installed.
+
 **What it costs you: about 68ms per tool call** (median; 92ms p95, measured on an M3 Pro
 with a 4KB tool response). The hook runs as a fresh process on every call your agent
 makes, so on a 100-call session that is roughly 7 seconds spread across the run. Almost
@@ -104,8 +121,8 @@ That scoring is [RotBench](benchmarks/ROTBENCH.md), published as an open spec so
 number is reproducible rather than self-reported.
 
 **Capture is Claude Code only right now.** The MCP integration below works anywhere MCP
-does; the hook that records *every* tool call uses a Claude Code `PostToolUse` hook.
-Cursor and Codex need their own mechanisms and those are not built yet.
+does; the hooks that record *every* tool call use Claude Code's `PreToolUse` and
+`PostToolUse`. Cursor and Codex need their own mechanisms and those are not built yet.
 
 ## Quickstart (60 seconds)
 

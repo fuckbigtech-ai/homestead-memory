@@ -3,7 +3,7 @@
   "name": "io.github.fuckbigtech-ai/homestead-memory",
   "title": "Homestead Memory",
   "description": "Tamper-evident record of what your AI agent did, plus local-first verifiable memory.",
-  "version": "0.3.5",
+  "version": "0.4.0",
   "repository": {
     "url": "https://github.com/fuckbigtech-ai/homestead-memory",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "pypi",
       "registryBaseUrl": "https://pypi.org",
       "identifier": "homestead-memory",
-      "version": "0.3.5",
+      "version": "0.4.0",
       "runtimeHint": "uvx",
       "transport": {
         "type": "stdio"
