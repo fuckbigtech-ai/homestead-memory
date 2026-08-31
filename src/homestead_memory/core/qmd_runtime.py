@@ -260,11 +260,87 @@ def status() -> dict:
     }
 
 
+def _listener_pid() -> int | None:
+    """PID actually LISTENING on our port, which is not always the pid we spawned.
+
+    `qmd` on this machine resolves to a version-manager shim that SPAWNS the real
+    server as a child rather than exec'ing into it, so `start()` records the wrapper
+    while the child holds the socket. If the wrapper dies the child keeps serving and
+    ownership is lost permanently.
+    """
+    if _platform_is_windows():
+        return None
+    try:
+        out = subprocess.run(
+            ["lsof", "-nP", f"-iTCP:{port()}", "-sTCP:LISTEN", "-t"],
+            capture_output=True, text=True, timeout=5,
+        ).stdout.split()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    for tok in out:
+        try:
+            return int(tok)
+        except ValueError:
+            continue
+    return None
+
+
+def _holds_our_files(pid: int) -> bool:
+    """Is this process using OUR index or log? The anti-foreign-runtime guard.
+
+    Command-line shape alone is weak evidence: any qmd on this port matches it. Having
+    our index.sqlite or mcp.log open is strong evidence the process is the one this
+    install started, which is what makes adoption safe rather than reckless.
+    """
+    if _platform_is_windows():
+        return False
+    p = paths()
+    try:
+        out = subprocess.run(["lsof", "-p", str(pid)], capture_output=True,
+                             text=True, timeout=5).stdout
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return str(p["index"]) in out or str(p["log"]) in out
+
+
+def adopt() -> dict:
+    """Reclaim a healthy listener that is ours but whose pidfile was lost.
+
+    Without this, losing the pidfile is UNRECOVERABLE: status reports pid_owned False
+    forever, `start` refuses with port_in_use_unowned, `stop` refuses with
+    pid_not_owned, and `refresh` refuses to "adopt a foreign QMD runtime" - so the
+    index silently goes stale and retrieval degrades with no path back except killing
+    the server by hand. Observed twice on this machine.
+
+    Adoption requires BOTH an ownable command line AND our own index/log held open, so
+    a genuinely foreign qmd on the port is still refused.
+    """
+    current = status()
+    if current["pid_owned"]:
+        return {**current, "adopted": False, "reason": "already_owned"}
+    if not current["endpoint_healthy"]:
+        return {**current, "adopted": False, "reason": "no_healthy_listener"}
+    pid = _listener_pid()
+    if not pid or not _alive(pid):
+        return {**current, "adopted": False, "reason": "listener_pid_unknown"}
+    if not _command_is_owned(_process_commandline(pid)):
+        return {**current, "adopted": False, "reason": "foreign_command_line"}
+    if not _holds_our_files(pid):
+        return {**current, "adopted": False, "reason": "not_our_index_or_log"}
+    ensure_dirs()
+    paths()["pid"].write_text(f"{pid}\n")
+    return {**status(), "adopted": True, "pid": pid}
+
+
 def start(qmd_bin: str, wait_seconds: float = 12.0) -> dict:
     current = status()
     if current["ok"]:
         return {**current, "started": False}
     if current["endpoint_healthy"] and not current["pid_owned"]:
+        # It may be OUR server with a lost pidfile. Reclaim before refusing.
+        reclaimed = adopt()
+        if reclaimed.get("adopted"):
+            return {**reclaimed, "started": False, "reason": "adopted_existing"}
         return {**current, "started": False, "reason": "port_in_use_unowned"}
     if current["pid_alive"]:
         return {**current, "started": False, "reason": "owned_process_unhealthy"}
@@ -278,6 +354,8 @@ def start(qmd_bin: str, wait_seconds: float = 12.0) -> dict:
         env=environment(qmd_bin=qmd_bin), **_spawn_options(),
     )
     log.close()
+    # Provisional: the wrapper may spawn the real server as a child, so the
+    # listening pid is resolved once healthy (below) and rewritten there.
     p["pid"].write_text(f"{proc.pid}\n")
     deadline = time.monotonic() + wait_seconds
     while time.monotonic() < deadline:
@@ -285,6 +363,9 @@ def start(qmd_bin: str, wait_seconds: float = 12.0) -> dict:
             break
         live = health(timeout=0.5)
         if live["ok"]:
+            listening = _listener_pid()
+            if listening and listening != proc.pid and _alive(listening):
+                p["pid"].write_text(f"{listening}\n")
             return {**status(), "started": True}
         time.sleep(0.15)
     return {**status(), "started": False, "reason": "startup_failed"}

@@ -172,7 +172,15 @@ def refresh(vault: Path | str | None = None, *, state_dir: Path | str | None = N
             raise RuntimeError("qmd 2.1+ is required for refresh")
         runtime = qmd_runtime.status()
         if runtime.get("endpoint_healthy") and not runtime.get("pid_owned"):
-            raise RuntimeError("refusing to adopt a foreign QMD runtime")
+            # A lost pidfile used to make this permanent: refresh refused, the index
+            # went stale, and retrieval degraded with no way back. Try to reclaim our
+            # own listener first; a genuinely foreign runtime still fails the guard.
+            runtime = qmd_runtime.adopt()
+            if not runtime.get("pid_owned"):
+                raise RuntimeError(
+                    "refusing to adopt a foreign QMD runtime "
+                    f"({runtime.get('reason', 'unknown')})"
+                )
         if runtime.get("pid_alive") and runtime.get("pid_owned") and not runtime.get("endpoint_healthy"):
             raise RuntimeError("owned QMD runtime is unhealthy")
         fingerprint = _fingerprint(root)

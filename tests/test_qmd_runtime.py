@@ -173,3 +173,106 @@ def test_find_qmd_skips_incompatible_binary(tmp_path, monkeypatch):
     monkeypatch.setattr(index.shutil, "which", lambda name: None)
     monkeypatch.setattr(qmd_runtime, "compatible", lambda path: path == str(new))
     assert index._find_qmd() == str(new)
+
+
+# --- adoption: losing the pidfile must not be permanent -----------------------------
+#
+# Observed twice on this machine (2026-08-27, 2026-08-31). The pidfile goes missing
+# while the server keeps serving, and every route back is then closed: status reports
+# pid_owned False, `start` refuses with port_in_use_unowned, `stop` refuses with
+# pid_not_owned, and `refresh` raises "refusing to adopt a foreign QMD runtime". The
+# index silently goes stale and retrieval degrades until someone kills the server by
+# hand. It also caused a flaky memory-degradation gate that looked transient.
+#
+# The second half of the bug: `qmd` here is a version-manager shim that SPAWNS the real
+# server as a child, so start() recorded the wrapper while the child held the socket.
+# Kill the wrapper and ownership is lost forever.
+
+
+def _adopt_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("HSM_QMD_CACHE_DIR", str(tmp_path / "cache"))
+    monkeypatch.setenv("HSM_QMD_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("HSM_QMD_STATE_DIR", str(tmp_path / "state"))
+    qmd_runtime.ensure_dirs()
+
+
+def _fake_healthy(monkeypatch, *, pid, cmdline, holds_files):
+    monkeypatch.setattr(qmd_runtime, "health", lambda **k: {"ok": True})
+    monkeypatch.setattr(qmd_runtime, "_listener_pid", lambda: pid)
+    monkeypatch.setattr(qmd_runtime, "_alive", lambda p: p == pid)
+    monkeypatch.setattr(qmd_runtime, "_process_commandline", lambda p: cmdline)
+    monkeypatch.setattr(qmd_runtime, "_holds_our_files", lambda p: holds_files)
+
+
+def test_adopts_our_own_listener_when_the_pidfile_was_lost(tmp_path, monkeypatch):
+    """The recovery that did not exist. Without it the state is unrecoverable."""
+    _adopt_env(tmp_path, monkeypatch)
+    port = qmd_runtime.port()
+    _fake_healthy(monkeypatch, pid=4242,
+                  cmdline=f"node /x/qmd.js mcp --http --port {port}", holds_files=True)
+
+    result = qmd_runtime.adopt()
+
+    assert result["adopted"] is True, result
+    assert result["pid"] == 4242
+    assert qmd_runtime.paths()["pid"].read_text().strip() == "4242"
+
+
+def test_adopts_the_listener_not_the_wrapper(tmp_path, monkeypatch):
+    """`qmd` is a shim that spawns the real server; the socket belongs to the CHILD.
+
+    Recording the wrapper means its death orphans a live listener and ownership can
+    never be regained.
+    """
+    _adopt_env(tmp_path, monkeypatch)
+    port = qmd_runtime.port()
+    wrapper, listener = 111, 222
+    _fake_healthy(monkeypatch, pid=listener,
+                  cmdline=f"node /x/qmd.js mcp --http --port {port}", holds_files=True)
+    qmd_runtime.paths()["pid"].write_text(f"{wrapper}\n")
+
+    qmd_runtime.adopt()
+
+    assert qmd_runtime.paths()["pid"].read_text().strip() == str(listener)
+
+
+def test_refuses_a_genuinely_foreign_command_line(tmp_path, monkeypatch):
+    """The guard must still mean something: adoption is not 'trust anything on the port'."""
+    _adopt_env(tmp_path, monkeypatch)
+    _fake_healthy(monkeypatch, pid=4242,
+                  cmdline="node /somebody/else/server.js --port 9999", holds_files=True)
+
+    result = qmd_runtime.adopt()
+
+    assert result["adopted"] is False
+    assert result["reason"] == "foreign_command_line"
+    assert not qmd_runtime.paths()["pid"].exists()
+
+
+def test_refuses_a_lookalike_that_does_not_use_our_index_or_log(tmp_path, monkeypatch):
+    """Command shape alone is weak: any qmd on this port matches it.
+
+    Holding OUR index or log is what makes the process ours, so a second qmd install
+    serving the same port is still refused.
+    """
+    _adopt_env(tmp_path, monkeypatch)
+    port = qmd_runtime.port()
+    _fake_healthy(monkeypatch, pid=4242,
+                  cmdline=f"node /other/install/qmd.js mcp --http --port {port}",
+                  holds_files=False)
+
+    result = qmd_runtime.adopt()
+
+    assert result["adopted"] is False
+    assert result["reason"] == "not_our_index_or_log"
+    assert not qmd_runtime.paths()["pid"].exists()
+
+
+def test_adopt_is_a_noop_when_nothing_is_listening(tmp_path, monkeypatch):
+    _adopt_env(tmp_path, monkeypatch)
+    monkeypatch.setattr(qmd_runtime, "health", lambda **k: {"ok": False})
+
+    result = qmd_runtime.adopt()
+
+    assert result["adopted"] is False
+    assert result["reason"] == "no_healthy_listener"
