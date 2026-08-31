@@ -296,6 +296,14 @@ def cmd_resolve(args) -> int:
 
 
 def cmd_export(args) -> int:
+    if args.format == "aat":
+        from .adapters.aat import aat_export
+
+        res = aat_export(args.path, out_dir=args.out)
+        print(f"wrote {res['records']} record(s) as {res['format']} -> {res['out']}")
+        if not res["signed"]:
+            print("unsigned: the chain proves records were not altered, not who wrote them.")
+        return 0
     if args.format == "okf":
         from .adapters.okf import okf_export
 
@@ -460,8 +468,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="vault directory (default: $HSM_VAULT, else cwd)")
     pe.add_argument("-o", "--out", default=None, metavar="OUT",
                     help="bundle path or OKF directory (default: format-specific path in cwd)")
-    pe.add_argument("--format", default="homestead", choices=["homestead", "okf"],
-                    help="export format (default: homestead)")
+    pe.add_argument("--format", default="homestead", choices=["homestead", "okf", "aat"],
+                    help="export format (default: homestead). aat = "
+                         "draft-sharif-agent-audit-trail-01 records, emitted ALONGSIDE "
+                         "the native format rather than replacing it")
     pe.add_argument("--evidence", action="store_true",
                     help="export an auditor-verifiable EvidencePack of the agent ledger")
     pe.add_argument("--since", default=None, metavar="TS",
