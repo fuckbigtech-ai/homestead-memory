@@ -33,6 +33,8 @@ import hashlib
 import json
 import re
 
+from .ledger import PHASE_POST, PHASE_PRE
+
 # Head kept from any payload. Long enough to be useful when debugging ("which command
 # ran?", "what did it print?"), short enough that a leaked credential is a fragment
 # rather than a key.
@@ -166,6 +168,18 @@ def from_hook_payload(payload: dict) -> dict:
     tool_input = pick("tool_input", "toolInput")
     tool_response = pick("tool_response", "toolResponse")
 
+    # Which side of the action are we on? The harness says so when it can, and the
+    # shape says so when it cannot: a PreToolUse payload has no tool_response because
+    # the tool has not run. Both are checked rather than trusting one, for the same
+    # reason the field names are read defensively above.
+    event = (pick("hook_event_name", "hookEventName") or "").lower()
+    if "pre" in event:
+        phase = PHASE_PRE
+    elif "post" in event:
+        phase = PHASE_POST
+    else:
+        phase = PHASE_POST if tool_response is not None else PHASE_PRE
+
     meta = {
         "tool_use_id": pick("tool_use_id", "toolUseId"),
         "cwd": pick("cwd"),
@@ -179,4 +193,5 @@ def from_hook_payload(payload: dict) -> dict:
         "summary": target_of(tool_name, tool_input),
         "meta": {k: v for k, v in meta.items() if v is not None},
         "session": pick("session_id", "sessionId"),
+        "phase": phase,
     }

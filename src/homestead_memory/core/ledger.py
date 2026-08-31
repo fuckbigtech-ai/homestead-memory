@@ -105,6 +105,10 @@ def _last_record(path: Path) -> dict | None:
     return None
 
 
+PHASE_PRE = "pre_execution"
+PHASE_POST = "post_execution"
+
+
 def append(
     action: str,
     *,
@@ -114,6 +118,7 @@ def append(
     vault: Path | str | None = None,
     agent: str | None = None,
     session: str | None = None,
+    phase: str | None = None,
 ) -> dict:
     """Append one record and return it.
 
@@ -140,6 +145,13 @@ def append(
             "meta": meta or {},
             "prev_hash": prev["hash"] if prev else GENESIS_HASH,
         }
+        # Written only when known, so records predating phase capture keep hashing
+        # exactly as they did and old chains still verify. draft-sharif-agent-audit-trail
+        # calls this record_phase, and it is the difference between a log that proves
+        # ENFORCEMENT and one that proves only observation: "a denial that is only logged
+        # after execution provides no evidence that the denial was enforced".
+        if phase:
+            rec["phase"] = phase
         rec["hash"] = record_hash(rec)
         line = json.dumps(rec, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n"
 

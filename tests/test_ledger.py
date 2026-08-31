@@ -311,3 +311,62 @@ def test_break_is_reported_after_the_rows_it_refers_to(capsys):
     assert "err" in order, "no stderr written; the demo did not report a break"
     first_err = order.index("err")
     assert "out" in order[:first_err], "the break was written before any records"
+
+
+# --- record_phase: proving enforcement, not just observation ------------------------
+#
+# draft-sharif-agent-audit-trail-01 section 4.1: "a denial that is only logged after
+# execution provides no evidence that the denial was enforced". A PostToolUse-only
+# ledger is therefore evidence of observation and nothing more, which is a weaker claim
+# than this project makes for it. Capturing the decision phase is what closes that.
+
+
+def test_phase_is_recorded_for_both_sides_of_an_action(tmp_path):
+    from homestead_memory.core import capture
+    pre = {"hook_event_name": "PreToolUse", "tool_name": "Bash",
+           "tool_input": {"command": "rm -rf build"}, "session_id": "s1"}
+    post = {**pre, "hook_event_name": "PostToolUse", "tool_response": {"ok": True}}
+    for payload in (pre, post):
+        ledger.append(vault=tmp_path, **capture.from_hook_payload(payload))
+
+    recs = ledger.read_all(tmp_path)
+    assert [r["phase"] for r in recs] == [ledger.PHASE_PRE, ledger.PHASE_POST]
+    assert ledger.verify_chain(tmp_path) == []
+
+
+def test_phase_is_inferred_when_the_harness_does_not_say(tmp_path):
+    """A PreToolUse payload has no tool_response, because the tool has not run.
+
+    The harness is trusted when it names the event and the payload shape is used when it
+    does not, rather than depending on one signal. A sibling hook on this machine once
+    silently did nothing for weeks by assuming a single input shape.
+    """
+    from homestead_memory.core import capture
+    assert capture.from_hook_payload({"tool_name": "Bash"})["phase"] == ledger.PHASE_PRE
+    assert capture.from_hook_payload(
+        {"tool_name": "Bash", "tool_response": {"ok": 1}})["phase"] == ledger.PHASE_POST
+    # An explicit event name outranks the shape.
+    assert capture.from_hook_payload(
+        {"hook_event_name": "PreToolUse", "tool_name": "B",
+         "tool_response": {"ok": 1}})["phase"] == ledger.PHASE_PRE
+
+
+def test_records_written_before_phase_existed_still_verify(tmp_path):
+    """The compatibility guarantee, proven rather than assumed.
+
+    `phase` is written only when known, so a pre-0.4.0 record simply lacks the key and
+    hashes exactly as it did. If this ever fails, shipping the phase field silently
+    invalidated every ledger already on disk.
+    """
+    ledger.append("tool_call", target="Bash", summary="old record", vault=tmp_path)
+    ledger.append("tool_call", target="Edit", summary="also old", vault=tmp_path)
+
+    recs = ledger.read_all(tmp_path)
+    assert all("phase" not in r for r in recs), "phase must be absent when not supplied"
+    assert ledger.verify_chain(tmp_path) == []
+
+    # A phase-carrying record chains onto phase-less history without breaking it.
+    ledger.append("tool_call", target="Read", summary="new", vault=tmp_path,
+                  phase=ledger.PHASE_PRE)
+    assert ledger.verify_chain(tmp_path) == []
+    assert ledger.read_all(tmp_path)[-1]["phase"] == ledger.PHASE_PRE

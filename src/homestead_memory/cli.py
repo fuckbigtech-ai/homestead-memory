@@ -827,24 +827,31 @@ def cmd_hook_install(args) -> int:
     exe = _hsm_executable()
     command = f"{_shell_quote(exe)} hook"
 
-    snippet = {
-        "hooks": {
-            "PostToolUse": [{
-                "matcher": "*",
-                "hooks": [{
-                    "type": "command",
-                    "command": command,
-                    # Explicit, because the harness default is 600s. A hung hook
-                    # inheriting that would stall a session for ten minutes.
-                    "timeout": 5,
-                }],
-            }]
-        }
-    }
+    # BOTH phases. PostToolUse alone records what happened AFTER the fact, which
+    # draft-sharif-agent-audit-trail-01 says is evidence of observation and not of
+    # enforcement: "a denial that is only logged after execution provides no evidence
+    # that the denial was enforced". Recording the decision phase too is what lets the
+    # ledger answer "was this authorised before it ran", which is the whole claim.
+    entry = [{
+        "matcher": "*",
+        "hooks": [{
+            "type": "command",
+            "command": command,
+            # Explicit, because the harness default is 600s. A hung hook inheriting
+            # that would stall a session for ten minutes, and on PreToolUse it would
+            # stall it BEFORE the tool runs, which is worse.
+            "timeout": 5,
+        }],
+    }]
+    snippet = {"hooks": {"PreToolUse": entry, "PostToolUse": entry}}
     print("Add to ~/.claude/settings.json (records EVERY tool call locally):\n")
     print(_json.dumps(snippet, indent=2))
     print("\nThen: hsm watch          # see what your agent did")
     print("      hsm watch --json   # machine-readable")
+    print("\nBoth phases are recorded. PreToolUse captures the decision before the tool")
+    print("runs; PostToolUse captures the outcome. A log of outcomes alone proves what")
+    print("happened, not that anything was authorised first. `hsm hook` always exits 0,")
+    print("so the PreToolUse entry can never block your agent.")
 
     # Say why the path is absolute, so nobody "tidies" it back to a bare name.
     on_path = shutil.which("hsm")
