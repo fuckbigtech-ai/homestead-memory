@@ -527,3 +527,37 @@ def test_checkpoint_signed_by_an_unexpected_key_is_rejected_through_verify(vault
     findings = verify_mod.deep_checks(vault, expect_pubkey="00" * 32)
     sig_findings = [f for f in findings if "ledger" in f.check]
     assert sig_findings, "pinning a key produced no ledger finding for a foreign signer"
+
+
+@sig_required
+def test_records_appended_after_the_checkpoint_are_not_covered(vault, tmp_path):
+    """Known and documented limit: a checkpoint protects its PREFIX, not the future.
+
+    Found by an adversarial pass on the prefix-check fix. Everything after the last
+    checkpoint can be replaced with a correctly re-chained forgery and still verify,
+    because a signature cannot cover records that did not exist when it was made.
+
+    This is inherent rather than a defect, so it is pinned here and stated in the README
+    instead of being quietly true. Re-checkpoint often, or the uncovered tail grows.
+    """
+    for i in range(5):
+        ledger.append("tool_call", target="Bash", summary=f"real{i}", vault=vault)
+    n = ledger.checkpoint(vault)["records"]      # derive the boundary; the fixture may
+    for i in range(4):                            # already hold records of its own
+        ledger.append("tool_call", target="Edit", summary=f"after{i}", vault=vault)
+
+    lp = Path(vault) / ledger.LEDGER_REL
+    recs = [json.loads(l) for l in lp.read_text().splitlines()]
+    for r in recs[n:]:
+        r["summary"] = "FORGED AFTER CHECKPOINT"
+    prev = recs[n - 1]["hash"]
+    for r in recs[n:]:
+        r["prev_hash"] = prev
+        r.pop("hash", None)
+        r["hash"] = ledger.record_hash(r)
+        prev = r["hash"]
+    lp.write_text("\n".join(json.dumps(r, sort_keys=True, separators=(",", ":")) for r in recs) + "\n")
+
+    ok, why = ledger.verify_checkpoint(vault)
+    assert ok, "the checkpointed prefix is intact, so this must not be reported as tampering"
+    assert "appended since" in why, why

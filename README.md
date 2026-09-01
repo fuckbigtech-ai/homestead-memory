@@ -137,6 +137,11 @@ Tamper-**evident**, not tamper-proof. The difference matters, so here it is plai
 - Anything altered after you handed someone an EvidencePack, which they can check with no
   install and nothing from us.
 
+**A checkpoint covers its prefix, not the future.** Records appended after your last
+checkpoint can be replaced with a correctly re-chained forgery and still verify, because a
+signature cannot cover records that did not exist when it was made. `hsm verify` tells you
+how many records are uncovered. Re-checkpoint often, or that tail grows.
+
 **It does not catch:**
 
 - **An attacker who holds your signing key.** The key lives at
