@@ -16,11 +16,13 @@ Output docs/demo-watch.gif
 
 Set Shell "bash"
 Set FontSize 16
-# Width is set by the longest real line, the chain-break report at ~110 chars. At 1000px
+# Width is set by the longest real line, the chain-break report at ~105 chars. At 1000px
 # it wrapped mid-word ("(edit / ed in place)"), which reads as a broken tool. Height is
-# trimmed to the ~19 lines the demo actually emits so there is no dead space under it.
+# trimmed to the 23 lines the demo emits since 0.4.0 records both hook phases, so every
+# tool call is now two rows and the old 470 cut the last section off. 530 ends just
+# under the last line: taller leaves dead space, shorter clips the trailing prompt.
 Set Width 1180
-Set Height 470
+Set Height 530
 Set Padding 22
 Set Theme "Catppuccin Mocha"
 Set TypingSpeed 55ms
@@ -34,4 +36,6 @@ Sleep 600ms
 Type "hsm watch --demo"
 Sleep 400ms
 Enter
-Sleep 4s
+# The demo sleeps ~1s between tool calls so the recorded timestamps are genuinely
+# distinct rather than all one second, so allow for that plus render time.
+Sleep 8s

@@ -681,7 +681,13 @@ def _print_ledger_rows(records) -> None:
         when = str(r.get("ts", ""))[11:19]
         tgt = r.get("target") or "?"
         summ = r.get("summary") or ""
-        print(f"  {r.get('seq'):>5}  {when}  {tgt:<14} {summ[:70]}")
+        # 0.4.0 records BOTH hook phases, so without this column a user sees two
+        # identical-looking rows per tool call and no reason why. Worse, the phase is
+        # what makes the record evidence of enforcement rather than of observation, and
+        # it was invisible in the tool's own output. Records written before phase
+        # capture carry none and render blank, so old ledgers are unchanged.
+        phase = {"pre_execution": "pre", "post_execution": "post"}.get(r.get("phase"), "")
+        print(f"  {r.get('seq'):>5}  {when}  {phase:<4}  {tgt:<14} {summ[:70]}")
 
 
 def _print_chain_problems(breaks, drops) -> int:
@@ -747,37 +753,50 @@ def run_watch_demo() -> int:
     not produce.
     """
     import tempfile
+    import time
     from .core import capture, ledger
 
     # Real harness payloads, taken through the SAME path cmd_hook uses
     # (capture.from_hook_payload -> ledger.append). Hand-building records here would let
     # the demo show a record shape the tool never produces.
-    payloads = [
-        {"tool_name": "Bash", "tool_input": {"command": "npm test"},
-         "tool_response": {"stdout": "3 passing"}},
-        {"tool_name": "Read", "tool_input": {"file_path": "src/api/billing.py"},
-         "tool_response": {"ok": True}},
-        {"tool_name": "Edit", "tool_input": {"file_path": "src/api/billing.py"},
-         "tool_response": {"ok": True}},
+    calls = [
+        ({"tool_name": "Bash", "tool_input": {"command": "npm test"}},
+         {"stdout": "3 passing"}),
+        ({"tool_name": "Read", "tool_input": {"file_path": "src/api/billing.py"}},
+         {"ok": True}),
+        ({"tool_name": "Edit", "tool_input": {"file_path": "src/api/billing.py"}},
+         {"ok": True}),
     ]
 
     with tempfile.TemporaryDirectory(prefix="fbt-watch-demo-") as d:
         v = Path(d)
         (v / ".hsm").mkdir(parents=True, exist_ok=True)
-        for p in payloads:
-            p = {**p, "session_id": "demo", "cwd": str(v)}
-            ledger.append(vault=v, **capture.from_hook_payload(p))
+        for k, (call, response) in enumerate(calls):
+            base = {**call, "session_id": "demo", "cwd": str(v)}
+            # Both phases, because that is what `hook --install` configures, and a log of
+            # outcomes alone cannot show that anything was authorised first.
+            ledger.append(vault=v, **capture.from_hook_payload(
+                {**base, "hook_event_name": "PreToolUse"}))
+            ledger.append(vault=v, **capture.from_hook_payload(
+                {**base, "hook_event_name": "PostToolUse", "tool_response": response}))
+            # Separate the calls in real time. append() takes no timestamp by design, so
+            # actually waiting is the only honest way to get distinct clock values. A
+            # recording where every row shares one second reads as fabricated, which is a
+            # bad look for a tool whose entire claim is that the record is real.
+            if k < len(calls) - 1:
+                time.sleep(1.05)
 
-        print("① three tool calls your agent made, in the order it made them:\n")
+        print("\u2460 three tool calls, each recorded twice: the decision before it ran,")
+        print("   and the outcome after.\n")
         _print_ledger_rows(ledger.read_all(v))
 
-        print("\n② now someone edits record 1, the way a log without a chain")
+        print("\n② now someone edits record 3, the way a log without a chain")
         print("   would silently allow. every hash after it breaks:\n")
         path = v / ledger.LEDGER_REL
         lines = path.read_text(encoding="utf-8").splitlines()
-        rec = json.loads(lines[1])
+        rec = json.loads(lines[3])
         rec["summary"] = "src/api/billing.py   # nothing to see here"
-        lines[1] = json.dumps(rec, sort_keys=True, separators=(",", ":"))
+        lines[3] = json.dumps(rec, sort_keys=True, separators=(",", ":"))
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
         _print_ledger_rows(ledger.read_all(v))

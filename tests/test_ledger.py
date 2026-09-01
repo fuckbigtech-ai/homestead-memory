@@ -248,7 +248,7 @@ def test_the_demo_actually_breaks_the_chain(capsys):
     """Nonzero exit, and the break names the record that was edited."""
     code, out = _run_demo_capturing(capsys)
     assert code == 1, "a demo that exits 0 is not demonstrating tamper-evidence"
-    assert "chain break at index 1" in out.err, out.err
+    assert "chain break at index 3" in out.err, out.err
     assert "hash_mismatch" in out.err
 
 
@@ -270,7 +270,11 @@ def test_the_demo_uses_the_same_renderer_as_real_watch(tmp_path, capsys):
     import re
     from homestead_memory import cli
 
-    ledger.append("tool_call", target="Bash", summary="npm test", vault=tmp_path)
+    # Must carry a phase: demo rows do, and a record without one renders a blank
+    # phase column. Comparing a phased row against an unphased one would fail on a
+    # real difference rather than on drift, which is not what this test is for.
+    ledger.append("tool_call", target="Bash", summary="npm test", vault=tmp_path,
+                  phase=ledger.PHASE_PRE)
     cli._print_ledger_rows(ledger.read_all(tmp_path))
     real = capsys.readouterr().out.strip("\n")
 
@@ -370,3 +374,37 @@ def test_records_written_before_phase_existed_still_verify(tmp_path):
                   phase=ledger.PHASE_PRE)
     assert ledger.verify_chain(tmp_path) == []
     assert ledger.read_all(tmp_path)[-1]["phase"] == ledger.PHASE_PRE
+
+
+def test_watch_distinguishes_the_two_phases(tmp_path, capsys):
+    """A pre/post pair must not render as two identical rows.
+
+    0.4.0 made `hook --install` write BOTH a PreToolUse and a PostToolUse entry, so
+    every tool call produces two records. The renderer did not show the phase, which
+    meant a user saw the same line twice with no explanation, and the field that makes
+    the record evidence of enforcement rather than of observation was invisible in the
+    tool's own output. Shipped that way; caught while re-recording the demo GIF.
+    """
+    from homestead_memory import cli
+
+    for phase in (ledger.PHASE_PRE, ledger.PHASE_POST):
+        ledger.append("tool_call", target="Edit", summary="src/api/billing.py",
+                      vault=tmp_path, phase=phase)
+
+    cli._print_ledger_rows(ledger.read_all(tmp_path))
+    rows = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
+    assert len(rows) == 2, rows
+    assert " pre " in rows[0], rows[0]
+    assert " post " in rows[1], rows[1]
+    assert rows[0] != rows[1], "the two phases must be distinguishable"
+
+
+def test_records_without_a_phase_still_render(tmp_path, capsys):
+    """Pre-0.4.0 ledgers carry no phase and must render cleanly, not 'None'."""
+    from homestead_memory import cli
+
+    ledger.append("tool_call", target="Bash", summary="npm test", vault=tmp_path)
+    cli._print_ledger_rows(ledger.read_all(tmp_path))
+    out = capsys.readouterr().out
+    assert "None" not in out, out
+    assert "npm test" in out
