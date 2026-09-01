@@ -25,3 +25,7 @@ styles/*/
 !styles/Homestead/
 !styles/Homestead/**
 artifact-integrity.json
+
+# Outbound drafts and internal strategy. Mirrored to the vault, not published.
+content-strategy/
+scripts/send-*.py

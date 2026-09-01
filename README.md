@@ -70,12 +70,30 @@ differ we say so: it specifies ECDSA P-256, which the AAT export uses, while the
 EvidencePack stays Ed25519 so its verifier can remain standard-library only and a
 recipient needs nothing installed.
 
-**What it costs you: about 68ms per tool call** (median; 92ms p95, measured on an M3 Pro
-with a 4KB tool response). The hook runs as a fresh process on every call your agent
-makes, so on a 100-call session that is roughly 7 seconds spread across the run. Almost
-all of it is Python interpreter and import startup rather than the recording itself.
+**Know this before you rely on the AAT export.** That draft is an individual
+Internet-Draft, not an adopted standard: it has no working group behind it and carries the
+usual notice that it "is not endorsed by the IETF". Its author has also filed
+[IPR disclosure 7558](https://datatracker.ietf.org/ipr/7558/), covering revisions 00 and 01
+in full, declaring "Reasonable and Non-Discriminatory License to All Implementers with
+Possible Royalty/Fee". RAND with a possible fee is not royalty-free, and this package is
+MIT, which grants you no patent licence. We ship the export because interoperability is
+worth having and we have asked the author to clarify what implementers are taking on.
+Until there is an answer, treat `--format aat` as a convenience rather than something to
+build a compliance programme on. The native ledger and EvidencePack carry no such
+disclosure, and they are what the rest of this README argues for.
+
+**What it costs you: about 124ms per tool call** (median; 138ms p95, measured on an M3 Pro
+with a 4KB tool response). Since 0.4.0 the hook records both phases, so it runs as a fresh
+process **twice** per call, once before your tool runs and once after: about 61ms and 63ms
+respectively. On a 100-call session that is roughly 12 seconds spread across the run.
+Almost all of it is Python interpreter and import startup rather than the recording itself.
 If that is too much for your loop, do not install the hook: the number is here so you can
 decide before you find out.
+
+Earlier releases documented 68ms, which was correct when only `PostToolUse` was recorded.
+Recording the decision phase is what makes the ledger evidence of enforcement rather than
+of observation, and it costs a second process. Stating the higher number rather than the
+one that flatters us is the same reason the rest of these figures are here.
 
 **This is a file, not a platform.** Agent observability tools are far richer than this
 and they want a deployment: the self-hosted ones document a production floor of several
