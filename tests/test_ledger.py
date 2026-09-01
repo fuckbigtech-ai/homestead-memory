@@ -726,3 +726,21 @@ def test_export_and_verify_together_is_an_error_not_a_silent_drop(vault, capsys)
     args = cli.build_parser().parse_args(["checkpoint", str(vault), "--export", "--verify", "x"])
     assert cli.cmd_checkpoint(args) == 2
     assert "pick one" in capsys.readouterr().err
+
+
+@sig_required
+def test_watch_coverage_does_not_parse_verify_checkpoints_prose(vault, capsys, monkeypatch):
+    """`hsm watch` must survive a reworded core message.
+
+    The first version did `why.split(";", 1)[1]`, so dropping that semicolon would
+    IndexError inside the daily command, on a display path. Simulate exactly that.
+    """
+    from homestead_memory import cli
+
+    ledger.checkpoint(vault)
+    ledger.append("tool_call", target="Edit", summary="after", vault=vault)
+    monkeypatch.setattr(ledger, "verify_checkpoint",
+                        lambda *a, **k: (True, "reworded with no punctuation at all"))
+
+    assert cli.cmd_watch(cli.build_parser().parse_args(["watch", str(vault)])) == 0
+    assert "not covered" in capsys.readouterr().err, "must still report the uncovered tail"

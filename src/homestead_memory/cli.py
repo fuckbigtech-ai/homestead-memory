@@ -887,8 +887,20 @@ def _print_checkpoint_coverage(path, total: int) -> int:
     if not ok:
         print(f"  !! checkpoint does not verify: {why}", file=sys.stderr)
         return 1
-    if "appended since" in why:
-        print(f"  -- {why.split(';', 1)[1].strip()}", file=sys.stderr)
+
+    # Read the covered count from the checkpoint itself rather than parsing it back out of
+    # verify_checkpoint's sentence. The first version did `why.split(";")[1]`, so rewording
+    # that message to drop its semicolon would IndexError here - inside `hsm watch`, on a
+    # display path, in the command people run daily. A CLI must not depend on core's prose.
+    try:
+        covered = json.loads(
+            (vaultlib._resolve(path) / ledger.CHECKPOINT_REL).read_text(encoding="utf-8")
+        )["records"]
+    except (ValueError, KeyError, OSError):
+        return 0
+    if total > covered:
+        print(f"  -- {total - covered} record(s) since the last checkpoint are not covered "
+              f"(run `hsm checkpoint`)", file=sys.stderr)
     return 0
 
 
