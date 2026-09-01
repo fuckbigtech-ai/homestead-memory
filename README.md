@@ -147,16 +147,21 @@ how many records are uncovered. Re-checkpoint often, or that tail grows.
 - **An attacker who holds your signing key.** The key lives at
   `~/.config/homestead-memory/ed25519_key`, on the same machine as the ledger. Anyone who
   can rewrite the file can usually read that key, re-sign the rewrite, and pass. If that is
-  your threat model, run `hsm checkpoint --export` and publish the line somewhere they do
-  not control. A head hash reveals nothing about the records, so publishing one leaks
-  nothing.
+  your threat model, run `hsm checkpoint --export`, publish the line somewhere they do not
+  control, and check the ledger against it later with `hsm checkpoint --verify`. A head
+  hash reveals nothing about the records, so publishing one leaks nothing.
 - **A tool that lies.** See below.
 - Anything that never reached the ledger at all, such as a hook you did not install.
 
 ```bash
-hsm checkpoint           # sign the current head
-hsm checkpoint --export  # one line to publish where an attacker cannot reach
+hsm checkpoint            # sign the current head
+hsm checkpoint --export   # one line to publish where an attacker cannot reach
+hsm checkpoint --verify   # check this ledger against a line you published earlier
 ```
+
+`hsm watch` reports how much of the ledger the checkpoint covers, and fails if the
+checkpoint no longer verifies. Everything appended since your last checkpoint is uncovered,
+so re-checkpoint often.
 
 ## It records what your harness reported
 

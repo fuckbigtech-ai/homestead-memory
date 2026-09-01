@@ -65,9 +65,24 @@ ADVISORY_CHECKS = frozenset({
     "index_drift",           # index staleness is retrieval config, not memory integrity
     "dead_link_unchecked",   # we could not check, which is about us
     "dead_link_truncated",
+    # v1.5: reported, never scored, for the SAME reason as `not_indexed` above. This one
+    # describes how the check was INVOKED, not the ledger: it fires whenever the caller
+    # omitted `--signer`. Scoring it would mean two people verifying a byte-identical
+    # ledger get different numbers depending on a flag, which is the exact defect the
+    # 2026-08-25 CI finding corrected. The operator still sees the advice.
+    "ledger_signer_unpinned",
 })
 
-ROTBENCH_VERSION = "v1.4"
+# v1.5 (2026-09-01): ledger checks move from `--deep` into the BASE pass. They were
+# deep-only since v1.3, which meant the plain `hsm verify` everyone actually runs stayed
+# silent about a broken chain, a ledger with known drops, and an unpinned signer. A
+# defect the default command cannot see is a defect the tool does not really check.
+#
+# This shifts non-deep scores for any vault that HAS a ledger (a chain break is a FAIL,
+# so such a vault can now fail a check that previously passed). Vaults with no ledger are
+# unaffected, which is why the published fixture numbers (clean 100 / poisoned 92) do not
+# move; that is asserted by a test rather than assumed.
+ROTBENCH_VERSION = "v1.5"
 
 # distilled-note grammar: `- field: value (source: path.md)` and its changelog lines.
 # Value stops at the FIRST '(source:' so a multi-source bullet doesn't fold a citation
@@ -166,7 +181,6 @@ def deep_checks(vault: Path | str | None = None, expect_pubkey: str | None = Non
     out: list[Finding] = []
     notes = list(vaultlib.iter_notes(v))
     out += _unretired_duplicate_checks(v, notes)
-    out += _ledger_checks(v, expect_pubkey=expect_pubkey)
 
     if notes:
         txt0 = notes[0][0].read_text(errors="replace").lower()
@@ -333,7 +347,7 @@ def _ledger_checks(vroot: Path, expect_pubkey: str | None = None) -> list[Findin
                                "checkpoint is self-asserted: it verifies against the key "
                                "found beside it, so a rebuilt chain re-signed with the "
                                "attacker's own key also passes. Pin yours with "
-                               "`hsm verify --deep --signer <pubkey>`"))
+                               "`hsm verify --signer <pubkey>`"))
     elif ledger.read_all(vroot):
         # Unsigned is a real weakness, not a failure: the chain still proves nobody
         # edited it in place, and demanding a key to use the tool would stop people
@@ -599,6 +613,10 @@ def verify_vault(vault: Path | str | None = None, deep: bool = False,
         # Every claim in a distilled note must carry a citation that resolves.
         if f.get("type") == "distilled" or rp.startswith("distilled/"):
             findings += _check_distilled(txt, rp, vaultlib._resolve(vault))
+
+    # Base pass, NOT deep: a broken chain or a ledger with known gaps is inadmissible,
+    # and the command people run by default has to say so. See the v1.5 note above.
+    findings += _ledger_checks(vaultlib._resolve(vault), expect_pubkey=expect_pubkey)
 
     if deep:
         findings += deep_checks(vault, expect_pubkey=expect_pubkey)

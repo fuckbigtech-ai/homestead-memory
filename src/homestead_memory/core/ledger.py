@@ -350,6 +350,61 @@ def verify_checkpoint(vault: Path | str | None = None,
         sig = json.loads(p.read_text(encoding="utf-8"))
     except ValueError:
         return False, "checkpoint file is not valid JSON"
+    return _check_attestation(root, sig, expect_pubkey)
+
+
+ATTESTATION_PREFIX = "hsm-checkpoint v1"
+_ATTESTATION_FIELDS = ("head", "records", "ts", "pubkey", "sig")
+
+
+def parse_attestation(line: str) -> dict:
+    """Parse the line `hsm checkpoint --export` prints, back into a checkpoint dict.
+
+    Raises ValueError with a usable message rather than returning a half-built dict: this
+    input arrives from a human pasting from a gist or a git commit, so malformed is the
+    NORMAL case and it must not be reported as a signature failure.
+    """
+    line = line.strip()
+    if not line.startswith(ATTESTATION_PREFIX):
+        raise ValueError(f"not an attestation line (expected it to start {ATTESTATION_PREFIX!r})")
+    kv = {}
+    for tok in line[len(ATTESTATION_PREFIX):].split():
+        k, _, v = tok.partition("=")
+        if not _:
+            raise ValueError(f"malformed field {tok!r}: expected key=value")
+        kv[k] = v
+    missing = [f for f in _ATTESTATION_FIELDS if f not in kv]
+    if missing:
+        raise ValueError(f"attestation is missing {', '.join(missing)}")
+    try:
+        records = int(kv["records"])
+    except ValueError:
+        raise ValueError(f"records={kv['records']!r} is not a number") from None
+    return {"head_hash": kv["head"], "records": records, "ts": kv["ts"],
+            "signer_pubkey": kv["pubkey"], "signature": kv["sig"]}
+
+
+def verify_attestation(line: str, vault: Path | str | None = None,
+                       expect_pubkey: str | None = None) -> tuple[bool, str]:
+    """(ok, reason) for a PUBLISHED attestation against the local ledger.
+
+    This is the half that makes `--export` mean anything. Exporting a line to a gist and
+    having no way to check a ledger against it is a ritual, not a control: the whole point
+    of publishing outside the machine is that you can come back and test the file against
+    what you published BEFORE the machine was touched.
+    """
+    return _check_attestation(vaultlib._resolve(vault), parse_attestation(line), expect_pubkey)
+
+
+def _check_attestation(root: Path, sig: dict,
+                       expect_pubkey: str | None = None) -> tuple[bool, str]:
+    """Shared by the on-disk checkpoint and a published attestation.
+
+    One implementation on purpose. Two copies of a signature-then-prefix check is how the
+    published path quietly grows weaker than the local one, and the published path is the
+    one used when the local machine is already suspect.
+    """
+    from . import signing
 
     if expect_pubkey and sig.get("signer_pubkey") != expect_pubkey:
         # Local rather than borrowed: the equivalent helper lives in verify.py, and

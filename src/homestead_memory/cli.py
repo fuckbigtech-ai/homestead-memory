@@ -417,7 +417,7 @@ def build_parser() -> argparse.ArgumentParser:
     pv.add_argument("--json", action="store_true",
                     help="emit a machine-readable verification report")
     pv.add_argument("--signer", default=None, metavar="PUBKEY",
-                    help="require this Ed25519 public key when --deep verifies .hsm/vault.sig")
+                    help="require this Ed25519 public key for .hsm/vault.sig and the ledger checkpoint")
     pv.set_defaults(func=cmd_verify)
 
     psign = sub.add_parser("sign", help="sign the vault's canonical markdown state")
@@ -514,6 +514,11 @@ def build_parser() -> argparse.ArgumentParser:
                     help="vault directory (default: $HSM_VAULT, else cwd)")
     pc.add_argument("--export", action="store_true",
                     help="print one publishable line instead of a summary")
+    pc.add_argument("--verify", nargs="?", const="", default=None, metavar="LINE",
+                    help="check this ledger against a previously exported line "
+                         "(reads stdin if LINE is omitted); does not write a checkpoint")
+    pc.add_argument("--signer", default=None, metavar="PUBKEY",
+                    help="with --verify, also require this Ed25519 public key")
     pc.set_defaults(func=cmd_checkpoint)
 
     pw = sub.add_parser("watch", help="show what your agent actually did (the local ledger)")
@@ -733,6 +738,9 @@ def cmd_checkpoint(args) -> int:
     """
     from .core import ledger
 
+    if getattr(args, "verify", None) is not None:
+        return _verify_attestation(args)
+
     try:
         sig = ledger.checkpoint(args.path)
     except RuntimeError as e:
@@ -769,6 +777,31 @@ def cmd_checkpoint(args) -> int:
     return 0
 
 
+def _verify_attestation(args) -> int:
+    """Check the local ledger against a previously published attestation line.
+
+    Reads from stdin when the line is not given as an argument, because the natural
+    gesture is `pbpaste | hsm checkpoint --verify` or piping from the file it was saved
+    to, and a signature on a shell command line ends up in shell history.
+
+    Deliberately does NOT write a checkpoint. `hsm checkpoint` signs; this reads. Signing
+    as a side effect of verifying would overwrite the very thing being tested.
+    """
+    from .core import ledger
+
+    line = args.verify or sys.stdin.read()
+    try:
+        ok, why = ledger.verify_attestation(line, args.path, expect_pubkey=args.signer)
+    except ValueError as e:
+        print(f"hsm checkpoint --verify: {e}", file=sys.stderr)
+        return 2                             # malformed input, distinct from a failed check
+    except RuntimeError as e:
+        print(f"hsm checkpoint --verify: {e}", file=sys.stderr)
+        return 1
+    print(f"  {'PASS' if ok else 'FAIL'}  {why}")
+    return 0 if ok else 1
+
+
 def cmd_watch(args) -> int:
     """Show what the agent actually did."""
     from .core import ledger
@@ -791,7 +824,43 @@ def cmd_watch(args) -> int:
             _explain_no_records(total)
         _print_ledger_rows(shown)
 
-    return _print_chain_problems(ledger.verify_chain(args.path), ledger.read_drops(args.path))
+    rc = _print_chain_problems(ledger.verify_chain(args.path), ledger.read_drops(args.path))
+    if not args.json:
+        rc = _print_checkpoint_coverage(args.path, total) or rc
+    return rc
+
+
+def _print_checkpoint_coverage(path, total: int) -> int:
+    """Say how much of the ledger the checkpoint actually covers. Returns an exit code.
+
+    `watch` is the command people run daily, and until 0.4.2 it mentioned checkpoints
+    zero times. That mattered more than it sounds: a chain break is the ONLY thing it
+    could detect, and a wholly rebuilt chain produces no break by design. So the one
+    attack the checkpoint exists to catch was invisible in the command most likely to be
+    looking for it.
+
+    Verifies rather than merely nudging, for the same reason: a reminder to run a command
+    is not a check. An uncovered tail is advisory (normal use appends past a checkpoint);
+    a checkpoint that fails to verify is a real problem and exits nonzero.
+    """
+    from .core import ledger
+
+    if not total:
+        return 0
+    if not (vaultlib._resolve(path) / ledger.CHECKPOINT_REL).exists():
+        print("  -- no checkpoint: a rebuilt chain would go undetected "
+              "(run `hsm checkpoint`)", file=sys.stderr)
+        return 0
+    try:
+        ok, why = ledger.verify_checkpoint(path)
+    except RuntimeError:
+        return 0                        # signing unavailable; not the user's problem here
+    if not ok:
+        print(f"  !! checkpoint does not verify: {why}", file=sys.stderr)
+        return 1
+    if "appended since" in why:
+        print(f"  -- {why.split(';', 1)[1].strip()}", file=sys.stderr)
+    return 0
 
 
 def run_watch_demo() -> int:

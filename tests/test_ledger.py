@@ -513,8 +513,11 @@ def test_checkpoint_signed_by_an_unexpected_key_is_rejected_through_verify(vault
 
     verify.py threaded expect_pubkey into signing.verify_signature but never into
     ledger.verify_checkpoint, so an attacker who rebuilt the chain could sign it with a
-    freshly generated key of their own and `hsm verify --deep --signer <real key>`
-    reported zero ledger findings.
+    freshly generated key of their own and `hsm verify --signer <real key>` reported zero
+    ledger findings.
+
+    Asserted through verify_vault at deep=False since v1.5, which is strictly stronger:
+    it pins the behaviour of the command people actually run, not of a helper.
     """
     from homestead_memory.core import verify as verify_mod
 
@@ -524,8 +527,8 @@ def test_checkpoint_signed_by_an_unexpected_key_is_rejected_through_verify(vault
     attacker = tmp_path / "attacker_key"
     ledger.checkpoint(vault, key_path=attacker)          # re-sign under a DIFFERENT key
 
-    findings = verify_mod.deep_checks(vault, expect_pubkey="00" * 32)
-    sig_findings = [f for f in findings if "ledger" in f.check]
+    rep = verify_mod.verify_vault(vault, deep=False, expect_pubkey="00" * 32)
+    sig_findings = [f for f in rep["findings"] if "ledger" in f["check"]]
     assert sig_findings, "pinning a key produced no ledger finding for a foreign signer"
 
 
@@ -561,3 +564,108 @@ def test_records_appended_after_the_checkpoint_are_not_covered(vault, tmp_path):
     ok, why = ledger.verify_checkpoint(vault)
     assert ok, "the checkpointed prefix is intact, so this must not be reported as tampering"
     assert "appended since" in why, why
+
+
+def _rebuild_chain(v, summary="FORGED"):
+    """Rebuild the whole ledger from scratch the way a COMPETENT attacker would.
+
+    Genesis matters. A first attempt at this used prev_hash=None and verify_chain caught
+    it at index 0 with `bad_genesis`, which looked like the chain detecting the attack
+    and was really the chain detecting a sloppy forgery. Use the real sentinel so the
+    rebuilt file is internally perfect and the test proves what it claims.
+    """
+    recs = [json.loads(x) for x in _lines(v)]
+    prev = recs[0]["prev_hash"]                       # whatever the real genesis is
+    for r in recs:
+        r["summary"] = summary
+        r["prev_hash"] = prev
+        r.pop("hash", None)
+        r["hash"] = ledger.record_hash(r)
+        prev = r["hash"]
+    _write(v, [json.dumps(r, sort_keys=True, separators=(",", ":")) for r in recs])
+    assert ledger.verify_chain(v) == [], "the rebuild must be internally perfect"
+
+
+@sig_required
+def test_a_rebuilt_chain_is_caught_by_a_published_attestation(vault):
+    """The export line is only worth printing if something can check a ledger against it."""
+    sig = ledger.checkpoint(vault)
+    line = (f"hsm-checkpoint v1 head={sig['head_hash']} records={sig['records']}"
+            f" ts={sig['ts']} pubkey={sig['signer_pubkey']} sig={sig['signature']}")
+
+    ok, _ = ledger.verify_attestation(line, vault)
+    assert ok, "an untouched ledger must verify against its own attestation"
+
+    _rebuild_chain(vault)
+    ok, why = ledger.verify_attestation(line, vault)
+    assert not ok, "a wholly rebuilt chain must fail against the published line"
+    assert "head hash does not match" in why or "not a prefix" in why, why
+
+
+def test_a_malformed_attestation_is_a_parse_error_not_a_failed_check():
+    """Distinct outcomes. Paste half a line from a gist and the honest answer is 'that is
+    not an attestation', not 'your ledger was tampered with'."""
+    for bad in ["", "nope", "hsm-checkpoint v1 head=aa", "hsm-checkpoint v1 head=a "
+                "records=NaN ts=t pubkey=p sig=s"]:
+        with pytest.raises(ValueError):
+            ledger.parse_attestation(bad)
+
+
+@sig_required
+def test_watch_catches_a_rebuilt_chain(vault, capsys):
+    """`watch` is the daily command, and until 0.4.2 it could not see this attack at all.
+
+    verify_chain returns clean on a correct rebuild BY DESIGN, so a command that only
+    reported chain breaks was blind to the exact thing the checkpoint exists to catch.
+    """
+    from homestead_memory import cli
+
+    ledger.checkpoint(vault)
+    _rebuild_chain(vault)
+    args = cli.build_parser().parse_args(["watch", str(vault)])
+    assert cli.cmd_watch(args) == 1, "watch must exit nonzero on a rebuilt chain"
+    assert "checkpoint does not verify" in capsys.readouterr().err
+
+
+@sig_required
+def test_watch_names_checkpoint_when_there_is_none(vault, capsys):
+    from homestead_memory import cli
+
+    cli.cmd_watch(cli.build_parser().parse_args(["watch", str(vault)]))
+    err = capsys.readouterr().err
+    assert "hsm checkpoint" in err, "the daily command must name the command that fixes this"
+
+
+@sig_required
+def test_verify_reports_ledger_findings_WITHOUT_deep(vault):
+    """The regression this guards: ledger checks were --deep only through v1.4.
+
+    A broken chain is inadmissible, and the plain `hsm verify` is what people run. A
+    defect the default command cannot see is a defect the tool does not really check.
+    """
+    from homestead_memory.core import verify
+
+    lines = _lines(vault)
+    rec = json.loads(lines[2]); rec["summary"] = "tampered"
+    lines[2] = json.dumps(rec, sort_keys=True, separators=(",", ":"))
+    _write(vault, lines)
+
+    rep = verify.verify_vault(vault, deep=False)
+    assert any(f["check"] == "ledger_chain" for f in rep["findings"]), \
+        "a tampered ledger must be reported without --deep"
+
+
+@sig_required
+def test_an_unpinned_signer_is_reported_but_does_not_move_the_score(vault):
+    """It describes the INVOCATION, not the ledger.
+
+    Scoring it would mean a byte-identical ledger scores differently depending on whether
+    the caller passed --signer, which is the same defect the v1.4 `not_indexed` correction
+    fixed after CI and the author's machine disagreed by exactly 8 points.
+    """
+    from homestead_memory.core import verify
+
+    ledger.checkpoint(vault)
+    rep = verify.verify_vault(vault, deep=False)
+    assert any(f["check"] == "ledger_signer_unpinned" for f in rep["findings"]), "must be reported"
+    assert "ledger_signer_unpinned" in verify.ADVISORY_CHECKS, "must not be scored"
