@@ -343,6 +343,12 @@ def _ledger_checks(vroot: Path, expect_pubkey: str | None = None) -> list[Findin
             ok, why = True, "signature check unavailable (install the [sign] extra)"
         if not ok:
             out.append(Finding("fail", "ledger_signature", "(ledger)", why))
+            # and nothing further. Both findings below are DERIVED from the checkpoint, so
+            # emitting them after it failed to verify means reasoning from untrusted data:
+            # "40 records uncovered" and "pin your key" are noise stacked on a forgery.
+            # This was an `elif` before ledger_uncovered was added and the guard was lost.
+            return out
+
         # How much of the ledger the signature actually covers. `hsm watch` reported this
         # and `hsm verify` did not, so the AUDIT command was the one staying quiet: a
         # 43-record ledger checkpointed at 3 showed no finding about the 40 unprotected
@@ -353,11 +359,20 @@ def _ledger_checks(vroot: Path, expect_pubkey: str | None = None) -> list[Findin
                 (vroot / CHECKPOINT_REL_).read_text(encoding="utf-8"))["records"]
         except (ValueError, KeyError, OSError):
             covered = None
-        if covered is not None and len(ledger.read_all(vroot)) > covered:
+        # `records` is attacker-reachable: it comes out of a file on disk. A string or a
+        # float there raised TypeError from the comparison below and took the WHOLE audit
+        # run down, so a corrupt checkpoint could deny the check rather than fail it.
+        if not isinstance(covered, int) or isinstance(covered, bool) or covered < 0:
+            covered = None
+        if covered is not None:
+            # Read once. This ran read_all twice, re-parsing the entire ledger for the
+            # subtraction, which is both wasted work and a window where a concurrent
+            # append makes the reported count disagree with the comparison that produced it.
             n = len(ledger.read_all(vroot)) - covered
-            out.append(Finding("warn", "ledger_uncovered", "(ledger)",
-                               f"{n} record(s) appended since the last checkpoint are not "
-                               f"covered by any signature (run `hsm checkpoint`)"))
+            if n > 0:
+                out.append(Finding("warn", "ledger_uncovered", "(ledger)",
+                                   f"{n} record(s) appended since the last checkpoint are "
+                                   f"not covered by any signature (run `hsm checkpoint`)"))
 
         if expect_pubkey is None:
             # A signature with no expected key proves the chain was signed, not that it

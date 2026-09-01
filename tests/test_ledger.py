@@ -818,3 +818,39 @@ def test_exported_attestation_fields_never_contain_whitespace(vault):
     for k in ("head_hash", "ts", "signer_pubkey", "signature"):
         assert not any(c.isspace() for c in str(sig[k])), \
             f"{k}={sig[k]!r} contains whitespace and would break the exported line"
+
+
+@sig_required
+def test_a_failed_checkpoint_emits_no_advisories_derived_from_it(vault):
+    """Do not reason from a checkpoint that just failed to verify.
+
+    `ledger_signer_unpinned` was guarded by an `elif` until `ledger_uncovered` was added
+    beside it and the guard was lost. A forged ledger then reported "pin your key" and
+    "N records uncovered" alongside the actual failure: noise derived from untrusted data,
+    stacked on top of the one finding that matters.
+    """
+    from homestead_memory.core import verify
+
+    ledger.checkpoint(vault)
+    _rebuild_chain(vault)
+    checks = [f["check"] for f in verify.verify_vault(vault, deep=False)["findings"]]
+    assert "ledger_signature" in checks, "the forgery itself must still be reported"
+    assert "ledger_signer_unpinned" not in checks, "advisory derived from a failed checkpoint"
+    assert "ledger_uncovered" not in checks, "advisory derived from a failed checkpoint"
+
+
+@sig_required
+@pytest.mark.parametrize("bad", ["3", 3.5, -1, None, True, [3]])
+def test_a_corrupt_records_field_does_not_crash_the_audit(vault, bad):
+    """`records` comes off disk, so it is attacker-reachable.
+
+    A string there raised `TypeError: '>' not supported between 'int' and 'str'` out of
+    verify_vault, taking down the ENTIRE audit run. A corrupt checkpoint must fail the
+    check, never deny it.
+    """
+    from homestead_memory.core import verify
+
+    sig = ledger.checkpoint(vault)
+    sig["records"] = bad
+    (Path(vault) / ledger.CHECKPOINT_REL).write_text(json.dumps(sig), encoding="utf-8")
+    verify.verify_vault(vault, deep=False)          # must not raise
