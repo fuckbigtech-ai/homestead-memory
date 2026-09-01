@@ -166,7 +166,7 @@ def deep_checks(vault: Path | str | None = None, expect_pubkey: str | None = Non
     out: list[Finding] = []
     notes = list(vaultlib.iter_notes(v))
     out += _unretired_duplicate_checks(v, notes)
-    out += _ledger_checks(v)
+    out += _ledger_checks(v, expect_pubkey=expect_pubkey)
 
     if notes:
         txt0 = notes[0][0].read_text(errors="replace").lower()
@@ -285,7 +285,7 @@ def _unretired_duplicate_checks(vroot: Path, notes) -> list[Finding]:
 _SOURCE_CITE_RE = re.compile(r"\(source:\s*([^)]+)\)")
 
 
-def _ledger_checks(vroot: Path) -> list[Finding]:
+def _ledger_checks(vroot: Path, expect_pubkey: str | None = None) -> list[Finding]:
     """Integrity of the agent ledger, when one exists (RotBench v1.3).
 
     A ledger is DERIVED memory: every record is a claim about something that already
@@ -316,11 +316,24 @@ def _ledger_checks(vroot: Path) -> list[Finding]:
 
     if (vroot / ledger.CHECKPOINT_REL).exists():
         try:
-            ok, why = ledger.verify_checkpoint(vroot)
+            # expect_pubkey MUST reach the ledger checkpoint, not just the vault
+            # signature. Without it, an attacker who rebuilt the chain could sign the
+            # forgery with a freshly generated key of their own and this reported zero
+            # ledger findings even when the caller pinned the real key.
+            ok, why = ledger.verify_checkpoint(vroot, expect_pubkey=expect_pubkey)
         except RuntimeError:
             ok, why = True, "signature check unavailable (install the [sign] extra)"
         if not ok:
             out.append(Finding("fail", "ledger_signature", "(ledger)", why))
+        elif expect_pubkey is None:
+            # A signature with no expected key proves the chain was signed, not that it
+            # was signed by anyone in particular. evidence_verifier.py already draws this
+            # distinction and reports SELF-ASSERTED; the ledger check must not be softer.
+            out.append(Finding("warn", "ledger_signer_unpinned", "(ledger)",
+                               "checkpoint is self-asserted: it verifies against the key "
+                               "found beside it, so a rebuilt chain re-signed with the "
+                               "attacker's own key also passes. Pin yours with "
+                               "`hsm verify --deep --signer <pubkey>`"))
     elif ledger.read_all(vroot):
         # Unsigned is a real weakness, not a failure: the chain still proves nobody
         # edited it in place, and demanding a key to use the tool would stop people

@@ -126,7 +126,14 @@ Tamper-**evident**, not tamper-proof. The difference matters, so here it is plai
 - A record deleted or reordered. Every hash after it breaks.
 - A silently dropped write. Drops are recorded and reported, never swallowed.
 - A whole chain rebuilt from scratch by someone who recomputed every hash, **provided you
-  ran `hsm checkpoint` and they do not hold your signing key**.
+  ran `hsm checkpoint`, you pin the expected signer, and they do not hold your key**. All
+  three matter. A checkpoint verified without a pinned key is self-asserted: it checks the
+  signature against whichever key sits beside it, so a rebuilt chain re-signed with the
+  attacker's own key also passes. `hsm verify --deep` now says so when no key is pinned.
+
+  ```bash
+  hsm verify --deep --signer <your pubkey>   # or the checkpoint is self-asserted
+  ```
 - Anything altered after you handed someone an EvidencePack, which they can check with no
   install and nothing from us.
 

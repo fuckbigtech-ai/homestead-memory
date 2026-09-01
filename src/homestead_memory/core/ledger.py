@@ -370,9 +370,24 @@ def verify_checkpoint(vault: Path | str | None = None,
     if current != sig["head_hash"]:
         # Not tampering by itself: normal appends move the head past a checkpoint.
         # Say which it is rather than crying wolf on ordinary use.
-        n_now = len(read_all(root))
-        if n_now > sig["records"]:
-            return True, (f"valid as of {sig['records']} records; "
-                          f"{n_now - sig['records']} appended since (re-checkpoint to cover them)")
+        #
+        # But growth is NOT sufficient evidence of growth. Comparing record COUNTS alone
+        # let a forgery that replaced every record and then grew past the checkpoint
+        # verify clean: 5 checkpointed records replaced by 9 fabricated ones returned
+        # "valid as of 5 records; 4 appended since". The signed head must still be a
+        # PREFIX of the chain, so recompute the hash at the checkpointed index and
+        # require it to match before accepting the ledger merely grew.
+        recs = read_all(root)
+        n_now = len(recs)
+        if n_now > sig["records"] and sig["records"] >= 1:
+            at_checkpoint = recs[sig["records"] - 1].get("hash")
+            if at_checkpoint == sig["head_hash"]:
+                return True, (f"valid as of {sig['records']} records; "
+                              f"{n_now - sig['records']} appended since "
+                              f"(re-checkpoint to cover them)")
+            return False, ("the checkpointed head is not a prefix of this chain: record "
+                           f"{sig['records'] - 1} hashes to {str(at_checkpoint)[:12]}…, "
+                           f"checkpoint signed {sig['head_hash'][:12]}… "
+                           "(the ledger was rebuilt, not appended to)")
         return False, "head hash does not match the checkpoint and the ledger did not grow"
     return True, f"verified: {sig['records']} records, head {current[:12]}…"

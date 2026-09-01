@@ -733,7 +733,13 @@ def cmd_checkpoint(args) -> int:
     """
     from .core import ledger
 
-    sig = ledger.checkpoint(args.path)
+    try:
+        sig = ledger.checkpoint(args.path)
+    except RuntimeError as e:
+        # Same handling as cmd_sign: signing._ed25519() raises when `cryptography` is
+        # absent, and a raw traceback is not an error message.
+        print(f"hsm checkpoint: {e}", file=sys.stderr)
+        return 1
 
     if getattr(args, "export", False):
         # One self-contained line the user can publish somewhere the local attacker does

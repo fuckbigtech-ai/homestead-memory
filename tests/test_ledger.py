@@ -437,8 +437,14 @@ def test_every_command_we_tell_users_to_run_actually_exists(vault, tmp_path):
     messages.append(why)
 
     from homestead_memory.core import verify as verify_mod
-    for f in verify_mod.verify_vault(vault).get("findings", []):
+    # deep=True is load-bearing: _ledger_checks runs ONLY under deep, so the default
+    # returned an empty finding list and this loop scanned nothing. A guard that passes
+    # on an empty list is not a guard.
+    for f in verify_mod.verify_vault(vault, deep=True).get("findings", []):
         messages.append(f"{f.get('note', '')} {f.get('detail', '')}")
+
+    scanned = sum(len(_recommended_commands(m)) for m in messages)
+    assert scanned, "no `hsm ...` recommendation was scanned; the guard would pass vacuously"
 
     for msg in messages:
         for cmd in _recommended_commands(msg):
@@ -451,6 +457,7 @@ def test_every_command_we_tell_users_to_run_actually_exists(vault, tmp_path):
                 )
 
 
+@sig_required
 def test_checkpoint_is_reachable_from_the_cli(vault, tmp_path):
     """The guarantee is only real if a user can invoke it.
 
@@ -464,3 +471,59 @@ def test_checkpoint_is_reachable_from_the_cli(vault, tmp_path):
     assert hasattr(args, "func"), "checkpoint parsed but is bound to no handler"
     assert args.func(args) == 0
     assert (Path(vault) / ledger.CHECKPOINT_REL).exists(), "checkpoint wrote no file"
+
+
+@sig_required
+def test_a_forged_chain_LONGER_than_the_checkpoint_is_caught(vault, tmp_path):
+    """The checkpoint must verify the head is still a PREFIX, not just count records.
+
+    verify_checkpoint compared record counts only, so a forgery that replaced every
+    record and then grew past the checkpoint returned True with "valid as of N records;
+    M appended since". Reproduced: 5 checkpointed records replaced by 9 fabricated ones
+    verified clean, which made the README's "catches a wholly rebuilt chain" claim false
+    for any forgery longer than the checkpoint, i.e. the normal case since ledgers grow.
+    """
+    for t in ("Bash", "Read", "Edit", "Write", "Grep"):
+        ledger.append("tool_call", target=t, summary="x", vault=vault)
+    ledger.checkpoint(vault)
+
+    lp = Path(vault) / ledger.LEDGER_REL
+    recs = [json.loads(l) for l in lp.read_text().splitlines()]
+    for r in recs:
+        r["summary"] = "FORGED"
+    recs += [dict(recs[-1]) for _ in range(4)]          # grow PAST the checkpoint
+    prev = ledger.GENESIS_HASH
+    for i, r in enumerate(recs):                         # re-chain so it is self-consistent
+        r["seq"] = i
+        r["prev_hash"] = prev
+        r.pop("hash", None)
+        r["hash"] = ledger.record_hash(r)
+        prev = r["hash"]
+    lp.write_text("\n".join(json.dumps(r, sort_keys=True, separators=(",", ":")) for r in recs) + "\n")
+
+    assert ledger.verify_chain(vault) == [], "a re-chained forgery is internally consistent"
+    ok, why = ledger.verify_checkpoint(vault)
+    assert not ok, f"a forged chain longer than the checkpoint verified clean: {why}"
+    assert "prefix" in why or "does not match" in why, why
+
+
+@sig_required
+def test_checkpoint_signed_by_an_unexpected_key_is_rejected_through_verify(vault, tmp_path):
+    """Pinning a signer must reach the LEDGER checkpoint, not only the vault signature.
+
+    verify.py threaded expect_pubkey into signing.verify_signature but never into
+    ledger.verify_checkpoint, so an attacker who rebuilt the chain could sign it with a
+    freshly generated key of their own and `hsm verify --deep --signer <real key>`
+    reported zero ledger findings.
+    """
+    from homestead_memory.core import verify as verify_mod
+
+    ledger.append("tool_call", target="Bash", summary="npm test", vault=vault)
+    ledger.checkpoint(vault)
+
+    attacker = tmp_path / "attacker_key"
+    ledger.checkpoint(vault, key_path=attacker)          # re-sign under a DIFFERENT key
+
+    findings = verify_mod.deep_checks(vault, expect_pubkey="00" * 32)
+    sig_findings = [f for f in findings if "ledger" in f.check]
+    assert sig_findings, "pinning a key produced no ledger finding for a foreign signer"
