@@ -669,3 +669,60 @@ def test_an_unpinned_signer_is_reported_but_does_not_move_the_score(vault):
     rep = verify.verify_vault(vault, deep=False)
     assert any(f["check"] == "ledger_signer_unpinned" for f in rep["findings"]), "must be reported"
     assert "ledger_signer_unpinned" in verify.ADVISORY_CHECKS, "must not be scored"
+
+
+@sig_required
+def test_verify_does_not_say_PASS_about_a_ledger_that_is_broken_now(vault, capsys):
+    """The attestation answers ONE question: does the published prefix still match.
+
+    It says nothing about records AFTER the checkpoint, so a chain broken past it returned
+    `PASS  valid as of N records` while verify_chain reported a break. That is the worst
+    possible place for a false pass, because `--verify` is what you run when you already
+    suspect the machine. Same defect as the EvidencePack verifier that printed "signed"
+    directly under `signature: ABSENT`.
+    """
+    from homestead_memory import cli
+
+    sig = ledger.checkpoint(vault)
+    line = (f"hsm-checkpoint v1 head={sig['head_hash']} records={sig['records']}"
+            f" ts={sig['ts']} pubkey={sig['signer_pubkey']} sig={sig['signature']}")
+    ledger.append("tool_call", target="Edit", summary="after", vault=vault)
+
+    lines = _lines(vault)
+    rec = json.loads(lines[-1]); rec["summary"] = "TAMPERED"   # edit in place, no rehash
+    lines[-1] = json.dumps(rec, sort_keys=True, separators=(",", ":"))
+    _write(vault, lines)
+    assert ledger.verify_chain(vault), "precondition: the ledger really is broken"
+
+    args = cli.build_parser().parse_args(["checkpoint", str(vault), "--verify", line])
+    rc = cli.cmd_checkpoint(args)
+    out = capsys.readouterr()
+    assert rc == 1, "a broken ledger must not exit 0 from --verify"
+    assert "broken now" in out.out, out.out
+    assert not out.out.lstrip().startswith("PASS"), \
+        "the FIRST verdict a reader sees must not be PASS when the result is failure"
+
+
+@sig_required
+def test_watch_json_reports_a_rebuilt_chain_to_a_SCRIPT(vault, capsys):
+    """--json exited 0 on a rebuilt chain while the human path exited 1.
+
+    Automation is exactly what consumes --json, and a correctly rebuilt chain produces no
+    chain break, so the JSON path carried no signal whatsoever.
+    """
+    from homestead_memory import cli
+
+    ledger.checkpoint(vault)
+    _rebuild_chain(vault)
+    args = cli.build_parser().parse_args(["watch", str(vault), "--json"])
+    assert cli.cmd_watch(args) == 1, "--json must not hide a rebuilt chain from a script"
+
+
+def test_export_and_verify_together_is_an_error_not_a_silent_drop(vault, capsys):
+    """One reads, one writes. Honouring whichever was checked first would let a user
+    believe they published a line they never received."""
+    from homestead_memory import cli
+
+    args = cli.build_parser().parse_args(["checkpoint", str(vault), "--export", "--verify", "x"])
+    assert cli.cmd_checkpoint(args) == 2
+    assert "pick one" in capsys.readouterr().err

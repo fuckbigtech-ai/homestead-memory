@@ -739,6 +739,12 @@ def cmd_checkpoint(args) -> int:
     from .core import ledger
 
     if getattr(args, "verify", None) is not None:
+        if getattr(args, "export", False):
+            # One reads, one writes. Silently honouring whichever we checked first is how
+            # a user ends up believing they published a line they never got.
+            print("hsm checkpoint: --export and --verify do opposite things; pick one",
+                  file=sys.stderr)
+            return 2
         return _verify_attestation(args)
 
     try:
@@ -798,8 +804,28 @@ def _verify_attestation(args) -> int:
     except RuntimeError as e:
         print(f"hsm checkpoint --verify: {e}", file=sys.stderr)
         return 1
-    print(f"  {'PASS' if ok else 'FAIL'}  {why}")
-    return 0 if ok else 1
+
+    # The attestation answers ONE question: does the published prefix still match. It says
+    # nothing about records after it, so a chain broken past the checkpoint returned PASS.
+    # That is the worst possible place for a false pass: --verify is what you run when you
+    # already suspect the machine. Same defect as the unsigned pack that printed "signed".
+    chain = ledger.verify_chain(args.path)
+    drops = ledger.read_drops(args.path)
+
+    # ONE verdict line, then the detail. An earlier revision printed `PASS <prefix ok>`
+    # and then `FAIL <ledger broken>` underneath, which puts PASS first for anyone
+    # scanning. A verdict line that reads PASS on a failing result is the same defect this
+    # function was written to fix, in cosmetic form.
+    passed = ok and not chain and not drops
+    if passed:
+        print(f"  PASS  {why}")
+    elif ok:
+        print(f"  FAIL  the ledger is broken now, though the published prefix still "
+              f"matches ({why})")
+    else:
+        print(f"  FAIL  {why}")
+    _print_chain_problems(chain, drops)
+    return 0 if passed else 1
 
 
 def cmd_watch(args) -> int:
@@ -825,8 +851,11 @@ def cmd_watch(args) -> int:
         _print_ledger_rows(shown)
 
     rc = _print_chain_problems(ledger.verify_chain(args.path), ledger.read_drops(args.path))
-    if not args.json:
-        rc = _print_checkpoint_coverage(args.path, total) or rc
+    # NOT gated on --json. It was, and a rebuilt chain then exited 0 for every script while
+    # exiting 1 for every human. Automation is precisely what consumes --json, and a
+    # rebuilt chain produces no chain break, so the JSON path had no signal at all. The
+    # notes go to stderr, so piped stdout stays clean JSON.
+    rc = _print_checkpoint_coverage(args.path, total) or rc
     return rc
 
 
