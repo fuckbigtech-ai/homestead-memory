@@ -327,7 +327,7 @@ def _ledger_checks(vroot: Path) -> list[Finding]:
         # using it. See test_a_fully_rebuilt_chain_* for what this does not cover.
         out.append(Finding("warn", "ledger_unsigned", "(ledger)",
                            "ledger has no checkpoint; a wholly rebuilt chain would go "
-                           "undetected (run `hsm ledger checkpoint`)"))
+                           "undetected (run `hsm checkpoint`)"))
     return out
 
 

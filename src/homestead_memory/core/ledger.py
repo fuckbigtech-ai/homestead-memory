@@ -345,7 +345,7 @@ def verify_checkpoint(vault: Path | str | None = None,
     root = vaultlib._resolve(vault)
     p = root / CHECKPOINT_REL
     if not p.exists():
-        return False, "no ledger checkpoint (run `hsm ledger checkpoint`)"
+        return False, "no ledger checkpoint (run `hsm checkpoint`)"
     try:
         sig = json.loads(p.read_text(encoding="utf-8"))
     except ValueError:

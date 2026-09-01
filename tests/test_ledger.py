@@ -408,3 +408,59 @@ def test_records_without_a_phase_still_render(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "None" not in out, out
     assert "npm test" in out
+
+
+def _recommended_commands(text: str) -> list[str]:
+    """Pull every `hsm ...` command string a message tells the user to run."""
+    import re
+    return [m.group(1).strip() for m in re.finditer(r"`hsm ([^`]+)`", text)]
+
+
+def test_every_command_we_tell_users_to_run_actually_exists(vault, tmp_path):
+    """The tool must not name a command that its own parser cannot accept.
+
+    `hsm verify` warned about a missing checkpoint and pointed at a "ledger checkpoint"
+    verify_checkpoint repeats it, but there is no `ledger` subcommand and no `checkpoint`
+    subcommand that never existed, so the user was told the exact hole in the guarantee
+    and then sent nowhere.
+
+    This is the same defect class as the hook snippet that shipped a bare `hsm`: a message
+    that points somewhere that is not there. Asserting it here means it cannot recur.
+    """
+    import argparse
+    from homestead_memory import cli
+
+    parser = cli.build_parser()
+    messages = []
+
+    _, why = ledger.verify_checkpoint(vault)
+    messages.append(why)
+
+    from homestead_memory.core import verify as verify_mod
+    for f in verify_mod.verify_vault(vault).get("findings", []):
+        messages.append(f"{f.get('note', '')} {f.get('detail', '')}")
+
+    for msg in messages:
+        for cmd in _recommended_commands(msg):
+            try:
+                parser.parse_args(cmd.split())
+            except SystemExit:
+                raise AssertionError(
+                    f"the tool tells users to run `hsm {cmd}`, which the parser rejects.\n"
+                    f"  message: {msg}"
+                )
+
+
+def test_checkpoint_is_reachable_from_the_cli(vault, tmp_path):
+    """The guarantee is only real if a user can invoke it.
+
+    ledger.checkpoint() is implemented and covered by four tests, but shipped with no CLI
+    command at all, which made the one mechanism that catches a wholly rebuilt chain
+    unreachable in practice.
+    """
+    from homestead_memory import cli
+
+    args = cli.build_parser().parse_args(["checkpoint", str(vault)])
+    assert hasattr(args, "func"), "checkpoint parsed but is bound to no handler"
+    assert args.func(args) == 0
+    assert (Path(vault) / ledger.CHECKPOINT_REL).exists(), "checkpoint wrote no file"

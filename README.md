@@ -11,6 +11,8 @@
 
 **A tamper-evident record of what your AI agent actually did**, in a local file, that
 someone who does not trust you can verify.
+Tamper-**evident**, not tamper-proof:
+[what it defends against and what it does not](#what-this-defends-against-and-what-it-does-not).
 
 Agents fail quietly. The run reports success, the tool returns 200, and the thing you
 asked for did not happen. There is usually no record to contradict it. This keeps one,
@@ -113,6 +115,66 @@ The pack carries the records, the signature, the public key, an integrity report
 standard-library verifier a third party can read in full and run. It states what it does
 NOT prove, including that a signature only establishes origin if you already know which
 key to expect.
+
+## What this defends against, and what it does not
+
+Tamper-**evident**, not tamper-proof. The difference matters, so here it is plainly.
+
+**It catches:**
+
+- A record edited in place. The hash stops matching and `hsm watch` names the index.
+- A record deleted or reordered. Every hash after it breaks.
+- A silently dropped write. Drops are recorded and reported, never swallowed.
+- A whole chain rebuilt from scratch by someone who recomputed every hash, **provided you
+  ran `hsm checkpoint` and they do not hold your signing key**.
+- Anything altered after you handed someone an EvidencePack, which they can check with no
+  install and nothing from us.
+
+**It does not catch:**
+
+- **An attacker who holds your signing key.** The key lives at
+  `~/.config/homestead-memory/ed25519_key`, on the same machine as the ledger. Anyone who
+  can rewrite the file can usually read that key, re-sign the rewrite, and pass. If that is
+  your threat model, run `hsm checkpoint --export` and publish the line somewhere they do
+  not control. A head hash reveals nothing about the records, so publishing one leaks
+  nothing.
+- **A tool that lies.** See below.
+- Anything that never reached the ledger at all, such as a hook you did not install.
+
+```bash
+hsm checkpoint           # sign the current head
+hsm checkpoint --export  # one line to publish where an attacker cannot reach
+```
+
+## It records what your harness reported
+
+The hook receives what the harness says a tool did. It is not independent observation.
+
+If a tool reports success while doing nothing, that is precisely the failure this exists to
+catch, because you get a durable record of the claim and can compare it against reality.
+But if a tool reports something false about *what* it did, the ledger will faithfully
+record a hash-chained, signed falsehood.
+
+The record proves the record was not altered. It does not make the harness truthful.
+
+## Why not just OpenTelemetry, or signed logs, or Langfuse
+
+Reasonable questions, and mostly they are different jobs.
+
+- **OpenTelemetry** gives you far richer tracing and an ecosystem this does not have. It is
+  not built to be tamper-evident, and spans usually leave the machine. Use both if you want:
+  they answer "what happened, in detail" and this answers "can I prove it was not edited".
+- **Signing your log files** gets you most of the way, and if you already do it you may not
+  need this. The differences are per-record chaining, so a single altered line is located
+  rather than the whole file being invalidated, and a pack whose verifier a recipient runs
+  with nothing installed.
+- **Langfuse, Braintrust, Phoenix** are observability platforms with dashboards, evals and
+  span analytics this will never have. They also want a deployment. The self-hosted ones
+  document a production floor of several services and roughly 16 GB of RAM. This is one hook
+  line and a JSONL file. If you want dashboards, use them.
+
+The narrow thing this does that those do not: produce a record a third party can verify
+without trusting you, without installing anything, and without the data leaving your machine.
 
 ## And the memory it reads is yours too
 

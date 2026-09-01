@@ -508,6 +508,14 @@ def build_parser() -> argparse.ArgumentParser:
                        help="print the settings.json snippet instead of recording")
     phook.set_defaults(func=lambda a: cmd_hook_install(a) if a.install else cmd_hook(a))
 
+    pc = sub.add_parser("checkpoint",
+                        help="sign the ledger head, so a wholly rebuilt chain is caught")
+    pc.add_argument("path", nargs="?", default=None,
+                    help="vault directory (default: $HSM_VAULT, else cwd)")
+    pc.add_argument("--export", action="store_true",
+                    help="print one publishable line instead of a summary")
+    pc.set_defaults(func=cmd_checkpoint)
+
     pw = sub.add_parser("watch", help="show what your agent actually did (the local ledger)")
     pw.add_argument("path", nargs="?", default=None)
     pw.add_argument("--demo", action="store_true",
@@ -710,6 +718,49 @@ def _print_chain_problems(breaks, drops) -> int:
         print(f"  !! {len(drops)} event(s) failed to record - the log has known gaps",
               file=sys.stderr)
     return 1 if (breaks or drops) else 0
+
+
+def cmd_checkpoint(args) -> int:
+    """Sign the current head of the ledger.
+
+    The hash chain proves nobody removed or edited a record in place. It does NOT prove the
+    whole file was not rebuilt from scratch by someone who recomputed every hash, and
+    `hsm verify` warns about exactly that. This is the command that closes it.
+
+    Shipped unreachable until 0.4.1: ledger.checkpoint() was implemented and covered by four
+    tests, but had no CLI entry, so `hsm verify` told users to run `hsm ledger checkpoint`
+    and there was no such command. The guarantee existed and could not be invoked.
+    """
+    from .core import ledger
+
+    sig = ledger.checkpoint(args.path)
+
+    if getattr(args, "export", False):
+        # One self-contained line the user can publish somewhere the local attacker does
+        # NOT control: a git commit, a gist, an email to themselves. That is the honest
+        # answer to "the key is on the same machine as the ledger": the chain plus a
+        # signature is only as strong as the key, but a head hash published OUTSIDE the
+        # machine cannot be back-dated by whoever later rewrites the file.
+        print(
+            f"hsm-checkpoint v1"
+            f" head={sig['head_hash']}"
+            f" records={sig['records']}"
+            f" ts={sig['ts']}"
+            f" pubkey={sig['signer_pubkey']}"
+            f" sig={sig['signature']}"
+        )
+        return 0
+
+    print(f"  head     {sig['head_hash']}")
+    print(f"  records  {sig['records']}")
+    print(f"  signer   {sig['signer_pubkey'][:16]}...")
+    print(f"  written  {ledger.CHECKPOINT_REL}")
+    print()
+    print("This is signed with a key on THIS machine, so it catches a rebuilt chain only")
+    print("if the rewriter does not hold that key. To cover the case where they do, run")
+    print("`hsm checkpoint --export` and publish the line somewhere you control and they")
+    print("do not. A head hash reveals nothing about what the records contain.")
+    return 0
 
 
 def cmd_watch(args) -> int:
