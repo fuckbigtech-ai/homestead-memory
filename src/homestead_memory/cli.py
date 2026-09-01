@@ -882,8 +882,17 @@ def _print_checkpoint_coverage(path, total: int) -> int:
         return 0
     try:
         ok, why = ledger.verify_checkpoint(path)
-    except RuntimeError:
-        return 0                        # signing unavailable; not the user's problem here
+    except RuntimeError as e:
+        # Signing unavailable. Not the user's fault, but "we could not check" must never
+        # render as silence, which reads as "checked and fine".
+        print(f"  -- checkpoint not checked: {e}", file=sys.stderr)
+        return 0
+    except OSError as e:
+        # An unreadable checkpoint (permissions, a bad mount) previously escaped as a raw
+        # PermissionError traceback out of `hsm watch`. A daily command must not die on a
+        # file it merely wanted to read, and it must not pretend the check passed either.
+        print(f"  !! checkpoint could not be read: {e}", file=sys.stderr)
+        return 1
     if not ok:
         print(f"  !! checkpoint does not verify: {why}", file=sys.stderr)
         return 1
@@ -896,7 +905,8 @@ def _print_checkpoint_coverage(path, total: int) -> int:
         covered = json.loads(
             (vaultlib._resolve(path) / ledger.CHECKPOINT_REL).read_text(encoding="utf-8")
         )["records"]
-    except (ValueError, KeyError, OSError):
+    except (ValueError, KeyError, OSError) as e:
+        print(f"  -- checkpoint coverage unknown: {e}", file=sys.stderr)
         return 0
     if total > covered:
         print(f"  -- {total - covered} record(s) since the last checkpoint are not covered "

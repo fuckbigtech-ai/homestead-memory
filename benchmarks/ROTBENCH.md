@@ -129,6 +129,10 @@ ledger, because a chain break is a FAIL and such a vault can now fail a check it
 previously passed. Vaults with no ledger are unaffected, so the published fixture pair is
 unchanged at **clean 100 / poisoned 92**, asserted by a test rather than assumed.
 
+`ledger_uncovered` is added in the same release so the audit command reports how much of
+the ledger the signature actually covers, which `hsm watch` reported and `hsm verify` did
+not.
+
 Two reachability defects were fixed alongside it, both the same shape as the checkpoint
 command that shipped with no CLI entry: `hsm watch` now reports and verifies checkpoint
 coverage (it previously mentioned checkpoints zero times, and a correctly rebuilt chain
@@ -358,6 +362,7 @@ Rows marked "(deep)" run only when `hsm verify --deep` is enabled.
 | `ledger_chain` | FAIL | **v1.3, base pass since v1.5.** a record in the agent ledger fails to hash-chain to its predecessor: edited in place, deleted, reordered, or torn by a crash. Reported at the exact index. A ledger is DERIVED memory (every record claims something already happened), so a break is inadmissible rather than merely suspicious |
 | `ledger_drop` | FAIL | **v1.3, base pass since v1.5.** the ledger records that it failed to record. A log that hides its own gaps is worse than no log, because it invites trust it has not earned |
 | `ledger_signature` | FAIL | **v1.3, base pass since v1.5.** the signed checkpoint does not verify against the current head. Catches a wholly rebuilt chain, which hash-chaining alone cannot: an attacker who rewrites every record recomputes every hash and produces a self-consistent file |
+| `ledger_uncovered` | WARN (advisory) | **v1.5.** records exist past the last checkpoint, so no signature covers them. Reported by `hsm watch` from the start and NOT by `hsm verify`, which is the audit command: a 43-record ledger checkpointed at 3 showed nothing. Advisory because a live ledger acquires an uncovered tail the instant it is appended to, and scoring that would penalise ordinary use |
 | `ledger_unsigned` | WARN | **v1.3, base pass since v1.5.** a ledger exists with no checkpoint. The chain still proves nobody edited it in place; requiring a key to use the tool would stop people using the tool |
 | `dead_link` | FAIL | (deep, git-backed vaults) **v1.3.** a `[[wikilink]]` pointing at a note that git shows was DELETED. Distinct from `broken_link`: measured on a real 4,808-note vault, of 120 unique missing targets **93 never existed** (forward-links, an encouraged habit) and **27 had been deleted** (dead pointers). Grading them identically either punishes good practice or excuses real decay |
 | `dead_link_unchecked` | WARN | (deep) **v1.3.** missing link targets exist but the vault is not a git repository, so forward-links cannot be separated from deleted notes. Emitted ONLY when there are broken links to adjudicate: an unconditional coverage warning penalises a vault for the tool's limitation rather than its own state |

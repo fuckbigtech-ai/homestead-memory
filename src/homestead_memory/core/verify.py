@@ -71,6 +71,9 @@ ADVISORY_CHECKS = frozenset({
     # ledger get different numbers depending on a flag, which is the exact defect the
     # 2026-08-25 CI finding corrected. The operator still sees the advice.
     "ledger_signer_unpinned",
+    # Same reasoning: a live ledger acquires an uncovered tail the instant it is appended
+    # to, so scoring it would mean nobody using the tool can score 100.
+    "ledger_uncovered",
 })
 
 # v1.5 (2026-09-01): ledger checks move from `--deep` into the BASE pass. They were
@@ -311,6 +314,7 @@ def _ledger_checks(vroot: Path, expect_pubkey: str | None = None) -> list[Findin
     it is inadmissible.
     """
     from . import ledger
+    from .ledger import CHECKPOINT_REL as CHECKPOINT_REL_
 
     out: list[Finding] = []
     if not (vroot / ledger.LEDGER_REL).exists():
@@ -339,7 +343,23 @@ def _ledger_checks(vroot: Path, expect_pubkey: str | None = None) -> list[Findin
             ok, why = True, "signature check unavailable (install the [sign] extra)"
         if not ok:
             out.append(Finding("fail", "ledger_signature", "(ledger)", why))
-        elif expect_pubkey is None:
+        # How much of the ledger the signature actually covers. `hsm watch` reported this
+        # and `hsm verify` did not, so the AUDIT command was the one staying quiet: a
+        # 43-record ledger checkpointed at 3 showed no finding about the 40 unprotected
+        # records. Advisory, because every live ledger has an uncovered tail the moment it
+        # is appended to, and scoring that would penalise ordinary use of the tool.
+        try:
+            covered = json.loads(
+                (vroot / CHECKPOINT_REL_).read_text(encoding="utf-8"))["records"]
+        except (ValueError, KeyError, OSError):
+            covered = None
+        if covered is not None and len(ledger.read_all(vroot)) > covered:
+            n = len(ledger.read_all(vroot)) - covered
+            out.append(Finding("warn", "ledger_uncovered", "(ledger)",
+                               f"{n} record(s) appended since the last checkpoint are not "
+                               f"covered by any signature (run `hsm checkpoint`)"))
+
+        if expect_pubkey is None:
             # A signature with no expected key proves the chain was signed, not that it
             # was signed by anyone in particular. evidence_verifier.py already draws this
             # distinction and reports SELF-ASSERTED; the ledger check must not be softer.

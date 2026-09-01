@@ -744,3 +744,77 @@ def test_watch_coverage_does_not_parse_verify_checkpoints_prose(vault, capsys, m
 
     assert cli.cmd_watch(cli.build_parser().parse_args(["watch", str(vault)])) == 0
     assert "not covered" in capsys.readouterr().err, "must still report the uncovered tail"
+
+
+@sig_required
+def test_watch_survives_an_unreadable_checkpoint(vault, capsys):
+    """It died with a raw PermissionError traceback out of the daily command.
+
+    Found by a five-agent pass, which reported it as "returns 0, hiding the failure". The
+    direction was right and the mechanism was not: it did not return anything, it crashed.
+    Verified before fixing, which is why this pins the crash AND the exit code.
+    """
+    import os
+    from homestead_memory import cli
+
+    ledger.checkpoint(vault)
+    cp = Path(vault) / ledger.CHECKPOINT_REL
+    cp.chmod(0o000)
+    try:
+        if os.access(cp, os.R_OK):
+            pytest.skip("running as root; permissions cannot be tested")
+        rc = cli.cmd_watch(cli.build_parser().parse_args(["watch", str(vault)]))
+        assert rc == 1, "an unreadable checkpoint must not read as a pass"
+        assert "could not be read" in capsys.readouterr().err
+    finally:
+        cp.chmod(0o600)
+
+
+@sig_required
+def test_verify_reports_records_the_checkpoint_does_not_cover(vault):
+    """`hsm watch` said "40 record(s) not covered" and `hsm verify` said nothing.
+
+    verify is the AUDIT command: it produces the score and the report an auditor reads. A
+    ledger whose signature covers 3 of 43 records must not look identical there to one
+    that is fully checkpointed.
+    """
+    from homestead_memory.core import verify
+
+    ledger.checkpoint(vault)
+    for i in range(7):
+        ledger.append("tool_call", target="Edit", summary=f"post{i}", vault=vault)
+
+    rep = verify.verify_vault(vault, deep=False)
+    unc = [f for f in rep["findings"] if f["check"] == "ledger_uncovered"]
+    assert unc, "verify must report the uncovered tail"
+    assert "7 record(s)" in unc[0]["detail"], unc[0]["detail"]
+    assert "ledger_uncovered" in verify.ADVISORY_CHECKS, \
+        "must not be scored: every live ledger has an uncovered tail"
+
+
+@sig_required
+def test_a_rebuilt_chain_is_caught_by_plain_verify_not_only_deep(vault):
+    """The primary v1.5 claim, tested directly.
+
+    The existing base-pass test covered `ledger_chain` (an in-place edit). A rebuilt chain
+    produces NO chain break by design and is caught only by `ledger_signature`, so without
+    this the headline claim was untested on the default command.
+    """
+    from homestead_memory.core import verify
+
+    ledger.checkpoint(vault)
+    _rebuild_chain(vault)
+    rep = verify.verify_vault(vault, deep=False)
+    assert any(f["check"] == "ledger_signature" for f in rep["findings"]), \
+        "a rebuilt chain must be caught WITHOUT --deep"
+    assert rep["score"] < 100 or any(f["level"] == "fail" for f in rep["findings"])
+
+
+@sig_required
+def test_exported_attestation_fields_never_contain_whitespace(vault):
+    """parse_attestation splits on whitespace, so a space in ANY field silently breaks the
+    round trip. Nothing enforces that the timestamp format stays space-free, so pin it."""
+    sig = ledger.checkpoint(vault)
+    for k in ("head_hash", "ts", "signer_pubkey", "signature"):
+        assert not any(c.isspace() for c in str(sig[k])), \
+            f"{k}={sig[k]!r} contains whitespace and would break the exported line"
