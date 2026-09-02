@@ -541,7 +541,8 @@ def build_parser() -> argparse.ArgumentParser:
     pw.add_argument("path", nargs="?", default=None)
     pw.add_argument("--demo", action="store_true",
                     help="record three calls in a throwaway vault, tamper one, catch it")
-    pw.add_argument("-n", type=int, default=30, help="how many records to show (0 = all)")
+    pw.add_argument("-n", type=_non_negative, default=30,
+                    help="how many records to show, most recent first (0 = all)")
     pw.add_argument("--tool", default=None, help="only this tool, e.g. Bash")
     pw.add_argument("--session", default=None, help="only this session id")
     pw.add_argument("--json", action="store_true")
@@ -844,6 +845,22 @@ def _verify_attestation(args) -> int:
         print(f"  FAIL  {why}")
     _print_chain_problems(chain, drops)
     return 0 if passed else 1
+
+
+def _non_negative(raw: str) -> int:
+    """argparse type for -n. Rejects negatives instead of quietly reinterpreting them.
+
+    `recs[-args.n:]` turns -n -1 into recs[1:], so a typo HID the oldest record and
+    reported the rest as if that were the whole ledger. On an evidence tool, silently
+    dropping the earliest records is the wrong direction to fail in.
+    """
+    try:
+        n = int(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{raw!r} is not a whole number") from None
+    if n < 0:
+        raise argparse.ArgumentTypeError(f"must be 0 or greater, got {n} (0 shows all)")
+    return n
 
 
 def cmd_watch(args) -> int:

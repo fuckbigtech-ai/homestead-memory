@@ -934,3 +934,20 @@ def test_filesystem_errors_do_not_produce_a_raw_traceback(vault, capsys, scenari
         assert argv[0] in err, err
     finally:
         target.chmod(0o700)
+
+
+def test_watch_n_rejects_a_negative_count(vault, capsys):
+    """`-n -1` sliced recs[-(-1):] == recs[1:], silently HIDING the oldest record.
+
+    On an evidence tool, a typo that quietly drops the earliest records and presents the
+    remainder as the whole ledger is the wrong direction to fail in.
+    """
+    from homestead_memory import cli
+
+    with pytest.raises(SystemExit):
+        cli.build_parser().parse_args(["watch", str(vault), "-n", "-1"])
+    assert "0 or greater" in capsys.readouterr().err
+
+    # 0 still means "all", which is the documented behaviour
+    args = cli.build_parser().parse_args(["watch", str(vault), "-n", "0"])
+    assert args.n == 0
