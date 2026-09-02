@@ -1108,6 +1108,22 @@ def cmd_hook_install(args) -> int:
         print("a bare `hsm`. If the hook's shell lacks it on PATH it will fail silently.")
         print("Verify with `hsm watch` after your next tool call.")
 
+    # The install moment is the ONLY time we reliably have the user's attention, and
+    # until 0.4.2 it mentioned checkpointing zero times. That left the default install in
+    # the weak state: recording everything, signing nothing. The hash chain catches an
+    # edit, a deletion and a reorder, but NOT a chain rebuilt from scratch - and that is
+    # the attack the product's headline claim is about. Shipping the guarantee as opt-in
+    # while saying nothing about it here made the median user's ledger defeatable by the
+    # exact thing the checkpoint exists to stop.
+    print("\nOne more step, and it is the one that matters:\n")
+    print("      hsm checkpoint     # sign the ledger head")
+    print("\nThe chain alone catches a record edited, deleted or reordered. It does NOT")
+    print("catch a chain rebuilt from scratch, because whoever rewrites every record can")
+    print("recompute every hash. Only a signature the rewriter does not hold closes that.")
+    print("Run it whenever you want the record so far to be provable - end of a session")
+    print("is a good habit. Everything appended after your last checkpoint is uncovered,")
+    print("and `hsm watch` tells you how much.")
+
     print("\nRecords stay on this machine. Payloads are truncated and secret-shaped")
     print("values are redacted, but treat the ledger as sensitive: it describes your work.")
     return 0

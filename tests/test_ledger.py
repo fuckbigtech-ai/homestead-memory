@@ -951,3 +951,22 @@ def test_watch_n_rejects_a_negative_count(vault, capsys):
     # 0 still means "all", which is the documented behaviour
     args = cli.build_parser().parse_args(["watch", str(vault), "-n", "0"])
     assert args.n == 0
+
+
+def test_hook_install_tells_the_user_to_checkpoint(capsys):
+    """The install moment is the only time we reliably have the user's attention.
+
+    It mentioned checkpointing zero times, which left the DEFAULT install recording
+    everything and signing nothing: protected only by the hash chain, which by design
+    does not catch a rebuilt chain. The headline guarantee was opt-in with nothing
+    pointing at it.
+    """
+    from homestead_memory import cli
+
+    args = cli.build_parser().parse_args(["hook", "--install"])
+    assert args.func(args) == 0
+    out = capsys.readouterr().out
+    assert "hsm checkpoint" in out, "must name the command"
+    assert "rebuilt" in out, "must say WHY the chain alone is not enough"
+    # and the command it recommends has to exist
+    cli.build_parser().parse_args(["checkpoint"])
