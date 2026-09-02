@@ -1,26 +1,26 @@
-# RotBench — the memory-integrity / tamper / poisoning benchmark
+# RotBench: the memory-integrity / tamper / poisoning benchmark
 
-RotBench v1.5 (v1.1 scoring for non-deep runs; see Scope)
+RotBench v1.5 (v1.1 scoring for non-deep runs. See Scope)
 
 <!-- vale off -->
 
 **LOCOMO / LongMemEval measure whether the model REMEMBERS. RotBench measures
-whether the memory can be TRUSTED — that it wasn't corrupted, poisoned, or
-silently rewritten.** Recall and QA are a crowded, contested lane; integrity is
+whether the memory can be TRUSTED, meaning it was not corrupted, poisoned, or
+silently rewritten.** Recall and QA are a crowded, contested lane. Integrity is
 the axis nobody ships as a gate. Recall has LOCOMO and LongMemEval, hallucination
-has HaluMem, poisoning-*attacks* have MPBench — but nothing scores whether the
+has HaluMem, poisoning-*attacks* have MPBench. But nothing scores whether the
 stored memory itself was tampered with or silently corrupted. And every recall
-benchmark reads against a fixed answer key that people keep disputing; RotBench
-doesn't read against a key at all — it checks the store against itself.
+benchmark reads against a fixed answer key that people keep disputing. RotBench
+does not read against a key at all. It checks the store against itself.
 
 Every memory benchmark measures **recall** (can you find it?) or **QA** (can you
 answer from it?). None measure whether the memory is still *intact*. Memory rots
 quietly: a note contradicts itself, a claim's source disappears, a body drifts past
 its own changelog, an extracted "fact" was never actually supported by its source.
-Most memory tools store locally now; almost none verify what they stored.
+Most memory tools store locally now. Almost none verify what they stored.
 
 RotBench is that missing number: **a 0-100 integrity score over a memory store,
-computed by mechanical checks — no LLM judge, no vibes.**
+computed by mechanical checks, with no LLM judge and no vibes.**
 
 > **Scope caveat.** Most checks read a cite-or-drop distilled layer, so pointing
 > them at an arbitrary imported store returns ~100 regardless of content. **v1.2
@@ -36,7 +36,7 @@ citations, and unresolved merge conflicts need to be caught mechanically before
 they become context for the next agent.
 
 The honest homestead-memory line today is **85% recall / 52.8% QA / RotBench 99.4**.
-Do not inflate it. Recall and QA are honest but mid; **RotBench is the number that's
+Do not inflate it. Recall and QA are honest but mid. **RotBench is the number that is
 actually ours, because no one else scores the integrity of the store itself.** It is
 here to make memory claims falsifiable, not prettier.
 
@@ -44,16 +44,16 @@ here to make memory claims falsifiable, not prettier.
 
 ## Threat model
 
-RotBench scores memory against three attack classes — the things that make a
+RotBench scores memory against three attack classes. These are the things that make a
 vault untrustworthy, not merely incomplete:
 
 | class | what it is | the check that catches it | level |
 |---|---|---|---|
-| **rot** | a note contradicts itself, a citation points at a source that's gone, or a body drifts past its own changelog | `self_contradiction`, `dangling_citation`, `duplicate_value`, `temporal_mismatch`, `stale_body` | FAIL / WARN |
-| **tamper** | a note's bytes are edited *after* the store was attested — a post-write rewrite, not a legitimate update | the detached **Ed25519 signature** over the vault's canonical markdown state → `provenance_integrity` (FAIL on an invalid/wrong-signer signature; WARN on a stale-but-valid one) | FAIL / WARN |
-| **poisoning** | untrusted input injects a "memory" with no real source — an agent writes a distilled fact carrying no resolving citation | `uncited_claim` (cite-or-drop: every distilled bullet must carry a `(source: …)` that *resolves*). Whether the cited source actually *supports* the claim is the separate distilled-layer verbatim-quote check. | FAIL |
+| **rot** | a note contradicts itself, a citation points at a source that is gone, or a body drifts past its own changelog | `self_contradiction`, `dangling_citation`, `duplicate_value`, `temporal_mismatch`, `stale_body` | FAIL / WARN |
+| **tamper** | a note's bytes are edited *after* the store was attested. This is a post-write rewrite, not a legitimate update | the detached **Ed25519 signature** over the vault's canonical markdown state → `provenance_integrity` (FAIL on an invalid/wrong-signer signature; WARN on a stale-but-valid one) | FAIL / WARN |
+| **poisoning** | untrusted input injects a "memory" with no real source. An agent writes a distilled fact carrying no resolving citation | `uncited_claim` (cite-or-drop: every distilled bullet must carry a `(source: …)` that *resolves*). Whether the cited source actually *supports* the claim is the separate distilled-layer verbatim-quote check. | FAIL |
 
-This is not a new idea grafted on — the detection already existed in
+This is not a new idea grafted on. The detection already existed in
 `src/homestead_memory/core/verify.py`: signing catches file tamper, `uncited_claim`
 catches injected-unsourced (poisoned) claims, `dangling_citation` catches dead
 evidence. RotBench makes it **explicit, fixtured, and named** (`tests/test_rotbench_integrity.py`
@@ -61,15 +61,15 @@ proves each class is caught with the right Finding).
 
 ### Prior art
 
-- **"Context rot"** (Chroma, Jul 2025) — the concept that retrieved context degrades
-  as a store accumulates stale/contradictory fragments; the `rot` family targets
+- **"Context rot"** (Chroma, Jul 2025). The concept that retrieved context degrades
+  as a store accumulates stale/contradictory fragments. The `rot` family targets
   exactly this.
 - **"From Untrusted Input to Trusted Memory: A Systematic Study of Memory
-  Poisoning Attacks in LLM Agents"** (arXiv, Jun 2026) — systematizes memory
+  Poisoning Attacks in LLM Agents"** (arXiv, Jun 2026). It systematizes memory
   poisoning into six attack classes and nine vulnerabilities and introduces
   **MPBench** to measure how well those *attacks* succeed. RotBench is the
-  complementary half: MPBench scores the attack; RotBench scores the store's
-  *defenses* — the cite-or-drop gate (`uncited_claim`) against unsourced
+  complementary half: MPBench scores the attack. RotBench scores the store's
+  *defenses*. The cite-or-drop gate (`uncited_claim`) works against unsourced
   injection, and the Ed25519 signature (`provenance_integrity`) against
   post-write tampering.
 
@@ -112,7 +112,7 @@ Plainly:
   `status:` against its nested `metadata.status`, which is schema hygiene, not
   meaning.
 
-### v1.5 (2026-09-01) — the default command can see the ledger
+### v1.5 (2026-09-01): the default command can see the ledger
 
 Ledger checks (`ledger_chain`, `ledger_drop`, `ledger_signature`, `ledger_unsigned`) ran
 **only under `--deep`** from v1.3 through v1.4. So the plain `hsm verify` that people
@@ -133,15 +133,17 @@ unchanged at **clean 100 / poisoned 92**, asserted by a test rather than assumed
 the ledger the signature actually covers, which `hsm watch` reported and `hsm verify` did
 not.
 
-Two reachability defects were fixed alongside it, both the same shape as the checkpoint
-command that shipped with no CLI entry: `hsm watch` now reports and verifies checkpoint
-coverage (it previously mentioned checkpoints zero times, and a correctly rebuilt chain
-produces no chain break by design, so the daily command was blind to the one attack the
-checkpoint exists to catch), and `hsm checkpoint --verify` checks a ledger against a
-previously exported attestation line. Exporting an attestation with no way to check
+Two reachability defects were fixed alongside it. Both are the same shape as the
+checkpoint command that shipped with no CLI entry.
+
+`hsm watch` now reports and verifies checkpoint coverage. It previously mentioned
+checkpoints zero times. A correctly rebuilt chain produces no chain break by design, so
+the daily command was blind to the one attack the checkpoint exists to catch.
+
+`hsm checkpoint --verify` checks a ledger against a previously exported attestation line. Exporting an attestation with no way to check
 anything against it was a ritual, not a control.
 
-### v1.4 (2026-08-25) — the score stops depending on the grader's machine
+### v1.4 (2026-08-25): the score stops depending on the grader's machine
 
 Found by CI, and findable no other way. The published fixture scores were **clean 92 /
 poisoned 85** on the author's machine and **clean 100 / poisoned 92** on CI. Every score
@@ -157,21 +159,21 @@ whether or not a retrieval index exists over it.
 
 Findings that describe the ENVIRONMENT rather than the memory are now reported but not
 scored (`ADVISORY_CHECKS`: `not_indexed`, `index_drift`, `dead_link_unchecked`,
-`dead_link_truncated`). The operator still sees the advice; the published number no
+`dead_link_truncated`). The operator still sees the advice. The published number no
 longer moves with it.
 
 **Published numbers are corrected to clean 100 / poisoned 92**, which is what every
 machine now reports. The previous 92 / 85 pair was reproducible only with qmd installed.
 That includes the v0.2.8 release notes, which are corrected rather than quietly left.
 
-### v1.3 (2026-08-24) — the ledger, and what a dangling pointer means
+### v1.3 (2026-08-24): the ledger, and what a dangling pointer means
 
 Two additions, both from measurement rather than preference.
 
 **The agent ledger** (`ledger_*`). A hash-chained, append-only record of what an agent
 actually did. It is DERIVED memory: every record is a claim about something that already
 happened, so a dangling or broken record is categorically worse than in a hand-written
-note. A note may point at something that does not exist yet; a ledger may not, because
+note. A note may point at something that does not exist yet. A ledger may not, because
 you cannot record an event that has not occurred. Hence FAIL.
 
 Note the boundary the spec states rather than hides: **a wholly rebuilt chain verifies
@@ -183,7 +185,7 @@ chain passes, so nobody mistakes chaining for proof of authenticity.
 **`dead_link`.** Previously all missing `[[wikilinks]]` were one WARN. Measured on a
 real 4,808-note vault: of 120 unique missing targets, **93 had never existed** and
 **27 had been deleted**. Those are not the same defect. A forward-link is an encouraged
-habit; a link that outlived its target is rot. Only git can separate them, so this runs
+habit. A link that outlived its target is rot. Only git can separate them, so this runs
 only in git-backed vaults and DISCLOSES when it cannot run instead of scoring clean.
 
 **Comparability.** A v1.3 `--deep` score is not directly comparable to a v1.2 `--deep`
@@ -197,7 +199,7 @@ poisoned, because a benchmark that stops discriminating has stopped being one.
 > without it. The figures above are what v1.3 reported, kept as written so this changelog
 > records what was true at the time rather than what we wish had been. See v1.4.
 
-### v1.2 (2026-07-30) — partially closed
+### v1.2 (2026-07-30): partially closed
 
 `unretired_duplicate` is the first check that scores memory CONTENT on a store with
 no homestead structure, and it closes the specific hole above. (Two pre-existing
@@ -226,7 +228,7 @@ comparable and the pair did not reproduce. The fixtures are now committed and bo
 are n=4.
 
 Note the stamp does NOT move: both stores read MEMORY INTACT, because
-`unretired_duplicate` is a WARN. The score and the findings differentiate them; the
+`unretired_duplicate` is a WARN. The score and the findings differentiate them. The
 verdict and the exit code do not.
 
 Still open, and still not measured: semantic contradiction where the two notes
@@ -244,7 +246,7 @@ names this risk officially. The [OWASP Agent Memory
 Guard](https://owasp.org/www-project-agent-memory-guard/) project describes itself
 as "the reference implementation that the risk definition currently lacks."
 
-That is the gap RotBench addresses. ASI06 names the risk and enumerates controls;
+That is the gap RotBench addresses. ASI06 names the risk and enumerates controls.
 it does not define a **score**. Without a number, "our memory is protected" is not
 a falsifiable claim.
 
@@ -263,11 +265,11 @@ rest, least-privilege access, session isolation via partition keys, not persisti
 raw tool results, immutable system prompts, cache TTLs. RotBench does none of
 that. It is **detection over a store at rest**, and it is scored rather than
 enforced. The two are complementary layers, not substitutes: Agent Memory Guard
-blocks a poisoned write as it happens; RotBench tells you whether what is already
+blocks a poisoned write as it happens. RotBench tells you whether what is already
 stored can be trusted.
 
 One primitive differs too. Agent Memory Guard validates integrity with SHA-256
-baselines; RotBench uses a detached Ed25519 signature over the vault's canonical
+baselines. RotBench uses a detached Ed25519 signature over the vault's canonical
 markdown state. Same goal (tamper-evidence), different mechanism. A store using
 either should be able to report a RotBench score.
 
@@ -324,7 +326,7 @@ Score your own tool against RotBench in one of two ways:
    same JSON shape.
 
 Deep verification can also run golden recall fixtures from
-`<vault>/.hsm/fixtures.json`; see [`examples/README.md`](../examples/README.md) and
+`<vault>/.hsm/fixtures.json`. See [`examples/README.md`](../examples/README.md) and
 [`examples/fixtures.example.json`](../examples/fixtures.example.json).
 
 ## The score
@@ -332,7 +334,7 @@ Deep verification can also run golden recall fixtures from
 `RotBench = max(0, round(100 * clean_notes / total_notes) - warn_penalty)`, where a
 note is *unclean* if it has any FAIL-level finding, and `warn_penalty =
 min(15, round(100 * warns/total * 0.3))`. A store with any fail is stamped
-**ROT DETECTED** regardless of score — one contradicting note is still rot.
+**ROT DETECTED** regardless of score, because one contradicting note is still rot.
 
 ## Check families
 
@@ -347,7 +349,7 @@ Rows marked "(deep)" run only when `hsm verify --deep` is enabled.
 | `dangling_citation` | FAIL | a citation is absolute, not `.md`, escapes the vault, or does not resolve inside it |
 | `duplicate_value` | FAIL | the same distilled field is recorded twice with conflicting current values |
 | `temporal_mismatch` | FAIL | a distilled current value contradicts the latest-by-date changelog assertion |
-| `provenance_integrity` | FAIL/WARN | (deep) the Ed25519 signature over the vault's canonical state: FAIL if invalid / wrong signer, WARN if stale (vault changed since signing) — the tamper axis |
+| `provenance_integrity` | FAIL/WARN | (deep) the Ed25519 signature over the vault's canonical state: FAIL if invalid / wrong signer, WARN if stale (vault changed since signing). This is the tamper axis |
 | `fallback_resilience` | FAIL | (deep) direct-scan retrieval cannot find a known term when the index is unavailable |
 | `fixture_miss` | FAIL | (deep) a golden recall query did not retrieve its expected note |
 | `required_field` | WARN | required metadata, currently `name:`, is missing |
@@ -375,7 +377,7 @@ contract: **nonzero = rot**, so it gates CI/cron like a test suite.
 ## Why mechanical-only
 
 An LLM judging integrity can hallucinate integrity. Every RotBench check is a
-deterministic predicate over the store's own bytes — reproducible on any machine,
+deterministic predicate over the store's own bytes, reproducible on any machine,
 no API key, no trust. The same philosophy as the store itself: claims carry
 citations that are *checked*, not believed.
 
@@ -383,7 +385,7 @@ citations that are *checked*, not believed.
 
 The checks assume only: a folder of markdown notes with YAML frontmatter, optional
 `## Changelog` lines (`- YYYY-MM-DD: ...`), optional `(source: rel/path.md)` citations
-on extracted claims. That's deliberately minimal — most markdown memory/PKM layouts
+on extracted claims. That is deliberately minimal, because most markdown memory/PKM layouts
 qualify with zero or trivial adaptation.
 
 ```bash
@@ -391,15 +393,15 @@ pip install homestead-memory
 hsm verify /path/to/your/memory --deep
 ```
 
-For CI, use the composite action in this repository; see
+For CI, use the composite action in this repository. See
 [`action.yml`](../action.yml) and the consumer example workflow at
 [`rotbench-example.yml`](../.github/workflows/rotbench-example.yml).
 
 ## Break it
 
 The score is only credible if it survives adversaries. If you can construct a store
-that is *obviously rotten* to a human but scores INTACT — or an intact store that
-false-positives — open an issue with the fixture. **We merge the fixture and fix the
+that is *obviously rotten* to a human but scores INTACT, or an intact store that
+false-positives, open an issue with the fixture. **We merge the fixture and fix the
 check.** The public break-it scoreboard lives in
 [`benchmarks/SCOREBOARD.md`](SCOREBOARD.md).
 
@@ -407,4 +409,4 @@ check.** The public break-it scoreboard lives in
 
 Alongside any recall/QA number, report: `RotBench <score>/100 (<fails> fail / <warns>
 warn, n=<notes>, v1.1, deep=<bool>)`. We report it in every benchmark run we publish
-(see `RESULTS.md`) — we'd like to see other memory systems do the same.
+(see `RESULTS.md`). We would like to see other memory systems do the same.
