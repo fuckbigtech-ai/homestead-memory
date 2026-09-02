@@ -854,3 +854,50 @@ def test_a_corrupt_records_field_does_not_crash_the_audit(vault, bad):
     sig["records"] = bad
     (Path(vault) / ledger.CHECKPOINT_REL).write_text(json.dumps(sig), encoding="utf-8")
     verify.verify_vault(vault, deep=False)          # must not raise
+
+
+@sig_required
+def test_an_empty_signer_does_not_silently_disable_the_pin(vault):
+    """`--signer "$KEY"` with KEY unset passes "", and `if expect_pubkey` skipped the pin.
+
+    A silent downgrade from "prove this key signed it" to "anything goes", reachable by an
+    ordinary shell typo, on the one flag whose entire purpose is to tighten the check.
+    """
+    ledger.checkpoint(vault)
+    ok, _ = ledger.verify_checkpoint(vault, expect_pubkey="")
+    assert not ok, "an empty pin must not be treated as 'unpinned'"
+
+    ok, _ = ledger.verify_checkpoint(vault, expect_pubkey=None)
+    assert ok, "None still means unpinned, which is the normal case"
+
+
+def test_cli_rejects_an_empty_signer_outright(vault, capsys):
+    from homestead_memory import cli
+
+    for argv in (["verify", str(vault), "--signer", ""],
+                 ["checkpoint", str(vault), "--verify", "x", "--signer", "   "]):
+        args = cli.build_parser().parse_args(argv)
+        assert args.func(args) == 2, argv
+        assert "empty value" in capsys.readouterr().err
+
+
+@sig_required
+def test_pinning_a_signer_on_an_UNSIGNED_ledger_fails(vault):
+    """The caller demanded a specific signer and nothing is signed at all.
+
+    That demand cannot be satisfied, so `hsm verify --signer <key>` exiting 0 on a wholly
+    unsigned ledger was wrong. The vault-signature path already handled the equivalent
+    case correctly; this is the ledger catching up to its own sibling.
+    """
+    from homestead_memory.core import verify
+
+    rep = verify.verify_vault(vault, deep=False, expect_pubkey="ab" * 32)
+    sig = [f for f in rep["findings"] if f["check"] == "ledger_signature"]
+    assert sig, "a pinned signer with no checkpoint must FAIL, not warn"
+    assert any(f["level"] == "fail" for f in sig)
+
+    # unpinned on the same ledger stays a warning: requiring a key to use the tool at all
+    # would stop people using the tool
+    rep2 = verify.verify_vault(vault, deep=False)
+    assert any(f["check"] == "ledger_unsigned" for f in rep2["findings"])
+    assert not [f for f in rep2["findings"] if f["check"] == "ledger_signature"]

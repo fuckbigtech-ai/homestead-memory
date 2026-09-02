@@ -406,7 +406,11 @@ def _check_attestation(root: Path, sig: dict,
     """
     from . import signing
 
-    if expect_pubkey and sig.get("signer_pubkey") != expect_pubkey:
+    # `is not None`, NOT truthiness. `--signer "$KEY"` with KEY unset passes an empty
+    # string, and `if expect_pubkey` skipped the pin entirely and returned PASS: a silent
+    # downgrade from "prove this key signed it" to "anything goes", triggered by an
+    # ordinary shell typo. An empty pin now fails the comparison like any other wrong key.
+    if expect_pubkey is not None and sig.get("signer_pubkey") != expect_pubkey:
         # Local rather than borrowed: the equivalent helper lives in verify.py, and
         # importing it here would make ledger depend on the module that is about to
         # depend on ledger. It is one line; the cycle is not worth saving it.

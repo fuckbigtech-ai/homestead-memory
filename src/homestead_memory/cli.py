@@ -208,8 +208,24 @@ def cmd_tune(args) -> int:
     return 0
 
 
+def _reject_empty_signer(args) -> bool:
+    """`--signer ""` is always a shell mistake (an unset variable), never an intent.
+
+    Caught by a probe: it used to disable the pin silently and exit 0, which is the worst
+    possible outcome for a flag whose entire purpose is to tighten the check.
+    """
+    key = getattr(args, "signer", None)
+    if key is not None and not key.strip():
+        print("hsm: --signer was given an empty value (an unset shell variable?); "
+              "omit the flag to run unpinned", file=sys.stderr)
+        return True
+    return False
+
+
 def cmd_verify(args) -> int:
     from .core import verify
+    if _reject_empty_signer(args):
+        return 2
     if args.demo and args.json:
         rep = verify.demo_report()
         print(json.dumps({
@@ -738,6 +754,8 @@ def cmd_checkpoint(args) -> int:
     """
     from .core import ledger
 
+    if _reject_empty_signer(args):
+        return 2
     if getattr(args, "verify", None) is not None:
         if getattr(args, "export", False):
             # One reads, one writes. Silently honouring whichever we checked first is how

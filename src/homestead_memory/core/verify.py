@@ -383,6 +383,15 @@ def _ledger_checks(vroot: Path, expect_pubkey: str | None = None) -> list[Findin
                                "found beside it, so a rebuilt chain re-signed with the "
                                "attacker's own key also passes. Pin yours with "
                                "`hsm verify --signer <pubkey>`"))
+    elif expect_pubkey is not None and ledger.read_all(vroot):
+        # The caller DEMANDED a specific signer and there is no signature at all, so the
+        # demand cannot be satisfied. Reporting that as a warning meant `hsm verify
+        # --signer <key>` exited 0 on a completely unsigned ledger. The vault-signature
+        # path above already gets this right (`sig_path.exists() or expect_pubkey is not
+        # None`); this is the ledger catching up to its own sibling.
+        out.append(Finding("fail", "ledger_signature", "(ledger)",
+                           f"a signer was pinned ({expect_pubkey[:16]}…) but the ledger has "
+                           f"no checkpoint, so nothing is signed (run `hsm checkpoint`)"))
     elif ledger.read_all(vroot):
         # Unsigned is a real weakness, not a failure: the chain still proves nobody
         # edited it in place, and demanding a key to use the tool would stop people
