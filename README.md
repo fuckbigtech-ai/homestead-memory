@@ -392,33 +392,33 @@ claude mcp add homestead-memory -- hsm mcp ~/my-vault
 
 ## Why this exists
 
-"Runs on your device" is table stakes now — every memory tool stores locally.
+"Runs on your device" is table stakes now. Every memory tool stores locally.
 **Nobody verifies.** Memory rots quietly: a note contradicts itself, an extracted
 "fact" loses its source, a body drifts past its own changelog, the current value
 gets shadowed by a stale one. You find out weeks later, when your agent confidently
 tells you something that stopped being true in March.
 
-And rot is only the *passive* failure. Memory also gets **tampered** with (a fact
+Rot is only the *passive* failure. Memory also gets **tampered** with (a fact
 edited after it was written) and **poisoned** (untrusted input injects a "memory"
-that was never true — a named 2026 attack class). homestead-memory catches all
-three mechanically: sign the vault and any edited byte breaks the signature; a
-distilled claim must cite a source that resolves or it's dropped. Recall benchmarks
-measure whether the model *remembers*; **RotBench measures whether the memory can be
-trusted** — see [`benchmarks/ROTBENCH.md`](benchmarks/ROTBENCH.md).
+that was never true, a named 2026 attack class). homestead-memory catches all
+three mechanically. Sign the vault and any edited byte breaks the signature. A
+distilled claim must cite a source that resolves, or it is dropped. Recall benchmarks
+measure whether the model *remembers*. **RotBench measures whether the memory can be
+trusted.** See [`benchmarks/ROTBENCH.md`](benchmarks/ROTBENCH.md).
 
 homestead-memory is built around three commitments:
 
 1. **Markdown-primary.** The human-readable files ARE the memory. Indexes and
-   projections are derived and disposable. You can leave any time — it's your folder.
+   projections are derived and disposable. You can leave any time. It is your folder.
    Import/export Google's **Open Knowledge Format** (`hsm export --format okf`) plus
-   Mem0/Zep: we're OKF, but signed and verifiable.
+   Mem0/Zep: we are OKF, but signed and verifiable.
 2. **Verification over trust.** Integrity is a *number* (RotBench, 0–100), computed
-   by mechanical checks — no LLM judging its own homework. See
+   by mechanical checks, with no LLM judging its own homework. See
    [`benchmarks/ROTBENCH.md`](benchmarks/ROTBENCH.md).
 3. **Auditable extraction.** The optional distilled layer ([`docs/DISTILL_SPEC.md`](docs/DISTILL_SPEC.md))
-   extracts entity facts *with verbatim quotes, checked in code* — a claim either
-   cites a real source or it's dropped. Contradictions append a changelog line
-   (`update current_crm: "Salesforce" -> "HubSpot" (source: chat-042.md)`) — never a
+   extracts entity facts *with verbatim quotes, checked in code*. A claim either
+   cites a real source or it is dropped. Contradictions append a changelog line
+   (`update current_crm: "Salesforce" -> "HubSpot" (source: chat-042.md)`), never a
    silent overwrite. Extraction you can audit is extraction you can trust.
 
 ## The two camps (where this sits)
@@ -450,10 +450,10 @@ real working vault it usually will not, and that is the tool doing its job. See
 [`benchmarks/ROTBENCH.md`](benchmarks/ROTBENCH.md) for what the score does and does
 not measure.
 
-What we will and won't claim: recall is elite and *reader-independent*; QA is honest
-and mid — published systems self-report higher on their own harnesses (Mem0 94.4%,
-Zep 63.8% independent); we publish the harness, the judge, and every failed
-experiment instead. No number here is from a harness you can't run yourself.
+What we will and will not claim: recall is elite and *reader-independent*. QA is honest
+and mid. Published systems self-report higher on their own harnesses (Mem0 94.4%,
+Zep 63.8% independent). We publish the harness, the judge, and every failed
+experiment instead. No number here is from a harness you cannot run yourself.
 
 ## Design
 
@@ -469,7 +469,7 @@ experiment instead. No number here is from a harness you can't run yourself.
 
 ## Status
 
-v0.2, building in public. Roadmap: [`ROADMAP.md`](ROADMAP.md). Break our benchmark:
-[`benchmarks/ROTBENCH.md`](benchmarks/ROTBENCH.md) — adversarial fixtures get merged.
+v0.4, building in public. Roadmap: [`ROADMAP.md`](ROADMAP.md). Break our benchmark:
+[`benchmarks/ROTBENCH.md`](benchmarks/ROTBENCH.md). Adversarial fixtures get merged.
 
 MIT © Kinetic Labs Inc. · a [FuckBigTech](https://fuckbigtech.ai) / HOMESTEAD project.
