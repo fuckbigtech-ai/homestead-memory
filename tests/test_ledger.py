@@ -901,3 +901,36 @@ def test_pinning_a_signer_on_an_UNSIGNED_ledger_fails(vault):
     rep2 = verify.verify_vault(vault, deep=False)
     assert any(f["check"] == "ledger_unsigned" for f in rep2["findings"])
     assert not [f for f in rep2["findings"] if f["check"] == "ledger_signature"]
+
+
+@sig_required
+@pytest.mark.parametrize("scenario", ["unreadable_ledger", "readonly_hsm_dir"])
+def test_filesystem_errors_do_not_produce_a_raw_traceback(vault, capsys, scenario):
+    """A traceback is not an error message.
+
+    Both cases reached one: a ledger file the user cannot read, and `hsm checkpoint` into
+    a read-only .hsm. Neither is exotic (a restored backup, a mounted volume, a root-owned
+    file), and a traceback reads like the tool broke rather than like the environment is
+    wrong. Handled at dispatch so it cannot be fixed one command at a time forever.
+    """
+    import os
+    from homestead_memory import cli
+
+    ledger.checkpoint(vault)
+    if scenario == "unreadable_ledger":
+        target, argv = Path(vault) / ledger.LEDGER_REL, ["watch", str(vault)]
+        mode = 0o000
+    else:
+        target, argv = Path(vault) / ".hsm", ["checkpoint", str(vault)]
+        mode = 0o500
+
+    target.chmod(mode)
+    try:
+        if os.access(target, os.W_OK if scenario == "readonly_hsm_dir" else os.R_OK):
+            pytest.skip("running as root; permissions cannot be tested")
+        assert cli.main(argv) == 1, "a filesystem error must not read as success"
+        err = capsys.readouterr().err
+        assert "Traceback" not in err, err
+        assert argv[0] in err, err
+    finally:
+        target.chmod(0o700)

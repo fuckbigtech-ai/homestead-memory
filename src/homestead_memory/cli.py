@@ -1113,7 +1113,24 @@ def main(argv=None) -> int:
     if not getattr(args, "command", None):
         parser.print_help()
         return 0
-    return args.func(args)
+    try:
+        return args.func(args)
+    except OSError as e:
+        # A raw traceback is not an error message. Probed cases that reached one: a ledger
+        # file the user cannot read, and `hsm checkpoint` into a read-only .hsm. Neither
+        # is exotic (a restored backup, a mounted volume, a root-owned file), and a
+        # traceback for "cannot read that file" reads like the tool broke rather than like
+        # the environment is wrong.
+        #
+        # Caught here rather than per-command so this cannot be fixed one command at a
+        # time forever. Exit 1, not 2: the check genuinely did not pass, and a caller must
+        # never read this as success. Callers that need to distinguish a specific failure
+        # still handle it themselves before it reaches this point.
+        print(f"hsm {args.command}: {e}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print("hsm: interrupted", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":
