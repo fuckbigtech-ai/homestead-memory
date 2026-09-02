@@ -34,7 +34,9 @@ def test_initialize_and_id_preserved_exactly(tmp_path):
     s = _state(tmp_path, initialized=False)
     r = mcp.handle_message(_req("initialize", mid="str-id-7"), s)
     assert r["id"] == "str-id-7"                          # id type preserved
-    assert r["result"]["protocolVersion"] == mcp.PROTOCOL_VERSION
+    # initialize is the LEGACY handshake, so it must answer a legacy revision.
+    # PROTOCOL_VERSION is now the MODERN one and would be wrong here.
+    assert r["result"]["protocolVersion"] == mcp.PREFERRED_LEGACY
     assert "tools" in r["result"]["capabilities"]
 
 
@@ -171,7 +173,7 @@ def test_stdio_smoke_full_handshake(tmp_path):
         input=lines, capture_output=True, text=True, timeout=60)
     out = [json.loads(l) for l in proc.stdout.splitlines() if l.strip()]
     by_id = {r.get("id"): r for r in out}
-    assert by_id[0]["result"]["protocolVersion"] == mcp.PROTOCOL_VERSION
+    assert by_id[0]["result"]["protocolVersion"] == mcp.PREFERRED_LEGACY
     assert {t["name"] for t in by_id[1]["result"]["tools"]} >= {"memory_verify"}
     assert "MEMORY INTACT" in by_id[2]["result"]["content"][0]["text"]
     assert by_id[None]["error"]["code"] == -32700          # parse error, id null
@@ -216,3 +218,114 @@ def test_unexpected_and_wrong_typed_args_rejected(tmp_path):
     r = mcp.handle_message(_req("tools/call", name="memory_search",
                                 arguments={"query": 42}), s)
     assert r["error"]["code"] == -32602                   # query must be a string
+
+
+# ------------------------------------------------- dual-era support (2026-07-28)
+# MCP has two eras. Legacy (2025-11-25 and earlier) opens with an `initialize`
+# handshake and holds session state. Modern (2026-07-28+) is stateless: every request
+# carries its version in `_meta`, there is no handshake, and `server/discover` is
+# mandatory. This server answered ONLY 2024-11-05 until 0.4.1, so a modern client
+# failed against it outright.
+
+def _modern(method, mid=1, version=mcp.MODERN_VERSION, **extra):
+    """A modern-era request: the protocol version rides in params._meta."""
+    params = {"_meta": {"io.modelcontextprotocol/protocolVersion": version}}
+    params.update(extra)
+    return {"jsonrpc": "2.0", "id": mid, "method": method, "params": params}
+
+
+def test_server_discover_answers_without_a_handshake(tmp_path):
+    """`server/discover` is a MUST, and on stdio it is the probe that decides the era.
+
+    It has to work on a server that has seen no `initialize`, because a modern client
+    never sends one. Gating it behind the legacy lifecycle would make this server look
+    legacy to every dual-era client.
+    """
+    s = _state(tmp_path, initialized=False)
+    r = mcp.handle_message(_modern("server/discover"), s)
+    res = r["result"]
+    assert mcp.MODERN_VERSION in res["supportedVersions"]
+    assert "tools" in res["capabilities"]
+    assert res["_meta"]["io.modelcontextprotocol/serverInfo"]["name"] == "homestead-memory"
+
+
+def test_modern_requests_need_no_initialize(tmp_path):
+    """Modern is stateless. Telling a modern request "server not initialized" would be
+    the legacy era leaking forward into a protocol that removed the handshake."""
+    s = _state(tmp_path, initialized=False)
+    r = mcp.handle_message(_modern("tools/list"), s)
+    assert "error" not in r, r
+    assert {t["name"] for t in r["result"]["tools"]}
+
+
+def test_unsupported_version_returns_the_spec_error(tmp_path):
+    """MUST be -32022 with the supported list, so the client can retry on a real version."""
+    s = _state(tmp_path, initialized=False)
+    r = mcp.handle_message(_modern("tools/list", version="1900-01-01"), s)
+    err = r["error"]
+    assert err["code"] == mcp.UNSUPPORTED_PROTOCOL_VERSION == -32022
+    assert err["data"]["requested"] == "1900-01-01"
+    assert mcp.MODERN_VERSION in err["data"]["supported"]
+
+
+def test_legacy_initialize_echoes_a_version_we_speak(tmp_path):
+    """The legacy rule: answer with the client's version when the server supports it."""
+    s = _state(tmp_path, initialized=False)
+    for asked in mcp.LEGACY_VERSIONS:
+        r = mcp.handle_message(_req("initialize", protocolVersion=asked), s)
+        assert r["result"]["protocolVersion"] == asked, asked
+
+
+def test_legacy_initialize_falls_back_when_the_version_is_unknown(tmp_path):
+    """An unknown version gets our preferred legacy revision, never the modern one:
+    a client that sent `initialize` cannot speak modern by definition."""
+    s = _state(tmp_path, initialized=False)
+    r = mcp.handle_message(_req("initialize", protocolVersion="1900-01-01"), s)
+    assert r["result"]["protocolVersion"] == mcp.PREFERRED_LEGACY
+    assert r["result"]["protocolVersion"] != mcp.MODERN_VERSION
+
+
+def test_legacy_client_still_works_end_to_end(tmp_path):
+    """Regression: the old handshake path must keep working, gate included."""
+    s = _state(tmp_path, initialized=False)
+    mcp.handle_message(_req("initialize"), s)
+    assert mcp.handle_message(_req("tools/list"), s)["error"]["code"] == -32002
+    mcp.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"}, s)
+    assert "result" in mcp.handle_message(_req("tools/list"), s)
+
+
+def test_spec_documents_exactly_the_tools_that_exist():
+    """docs/MCP_SPEC.md said "Tools (6)" while the server shipped 9.
+
+    Same defect class as the README claiming v0.2 at 0.4.0: a doc quietly describing an
+    older product. This one is worse than cosmetic, because the spec is what an
+    integrator reads before writing a client.
+    """
+    import re
+
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "MCP_SPEC.md").read_text()
+    documented = set(re.findall(r"\| `(memory_\w+)`", doc))
+    shipped = {t["name"] for t in mcp.TOOLS}
+    assert documented == shipped, (
+        f"MCP_SPEC.md and the server disagree. "
+        f"In code but undocumented: {sorted(shipped - documented)}. "
+        f"Documented but absent: {sorted(documented - shipped)}."
+    )
+    heading = re.search(r"^## Tools \((\d+)\)", doc, re.M)
+    assert heading and int(heading.group(1)) == len(shipped), (
+        f"the Tools heading says {heading.group(1) if heading else '?'} "
+        f"but {len(shipped)} tools ship"
+    )
+
+
+def test_spec_does_not_advertise_a_version_the_server_refuses():
+    """Every version the spec lists as supported must actually be accepted."""
+    import re
+
+    doc = (Path(__file__).resolve().parents[1] / "docs" / "MCP_SPEC.md").read_text()
+    listed = set(re.findall(r"`(\d{4}-\d{2}-\d{2})`", doc))
+    assert listed, "the spec no longer lists any protocol version"
+    assert listed <= set(mcp.SUPPORTED_VERSIONS), (
+        f"MCP_SPEC advertises {sorted(listed - set(mcp.SUPPORTED_VERSIONS))}, "
+        f"which the server does not accept"
+    )

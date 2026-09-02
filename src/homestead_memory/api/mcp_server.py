@@ -26,7 +26,27 @@ from ..core import resolve as resolve_mod
 from ..core import signing as signing_mod
 from ..core import vault as vaultlib
 
-PROTOCOL_VERSION = "2024-11-05"
+# MCP has two eras. "Legacy" revisions (2025-11-25 and earlier) open with an
+# `initialize` handshake and hold session state. "Modern" (2026-07-28 and later) is
+# STATELESS: every request carries its own version in `_meta`, there is no handshake, and
+# `server/discover` is mandatory.
+#
+# This server is DUAL-ERA. It answered only 2024-11-05 until 0.4.1, which was two eras and
+# twenty months behind, and a modern client talking to it would have failed outright.
+#
+# On the four methods this server exposes (initialize, ping, tools/list, tools/call) the
+# legacy revisions are behaviourally identical. They differ in features this server does
+# not implement at all: resources, prompts, sampling, elicitation, and the HTTP transport.
+# So answering any of them for the tools subset is honest rather than generous.
+MODERN_VERSION = "2026-07-28"
+LEGACY_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
+SUPPORTED_VERSIONS = (MODERN_VERSION,) + LEGACY_VERSIONS
+PREFERRED_LEGACY = LEGACY_VERSIONS[0]
+PROTOCOL_VERSION = MODERN_VERSION      # kept: external callers import this name
+
+_META_VERSION = "io.modelcontextprotocol/protocolVersion"
+_META_SERVER_INFO = "io.modelcontextprotocol/serverInfo"
+UNSUPPORTED_PROTOCOL_VERSION = -32022   # UnsupportedProtocolVersionError
 MAX_TEXT = 50_000
 _MAX_LINE = 10_000_000     # inbound line cap — a huge line becomes -32700, not an OOM
 _REJECT_NAN = lambda s: (_ for _ in ()).throw(ValueError(f"non-finite: {s}"))  # noqa: E731
@@ -260,8 +280,27 @@ def _resp(mid, result=None, error=None) -> dict:
     return out
 
 
-def _err(code: int, message: str) -> dict:
-    return {"code": code, "message": message}
+def _err(code: int, message: str, data=None) -> dict:
+    out = {"code": code, "message": message}
+    if data is not None:
+        out["data"] = data
+    return out
+
+
+def _requested_version(msg: dict) -> str | None:
+    """The protocol version a MODERN request declares, or None for a legacy request.
+
+    Modern requests carry it in `params._meta`. Absence is what marks a request as
+    legacy, so this must not invent a default.
+    """
+    params = msg.get("params")
+    if not isinstance(params, dict):
+        return None
+    meta = params.get("_meta")
+    if not isinstance(meta, dict):
+        return None
+    v = meta.get(_META_VERSION)
+    return v if isinstance(v, str) else None
 
 
 class ServerState:
@@ -293,15 +332,46 @@ def handle_message(msg, state: ServerState):
             state.initialized = True
         return None                      # unknown notifications (incl. cancelled): swallow
 
-    if method == "initialize":
-        state.initialize_seen = True
+    # ---- modern era (2026-07-28+): stateless, version declared per request --------
+    # Checked BEFORE the legacy lifecycle gate, because a modern request must never be
+    # told "server not initialized". There is no handshake to have missed.
+    requested = _requested_version(msg)
+    if requested is not None and requested not in SUPPORTED_VERSIONS:
+        return _resp(mid, error=_err(
+            UNSUPPORTED_PROTOCOL_VERSION, "Unsupported protocol version",
+            {"supported": list(SUPPORTED_VERSIONS), "requested": requested}))
+
+    if method == "server/discover":
+        # MUST be implemented, and MUST answer without a handshake: on stdio this is the
+        # probe a dual-era client uses to decide which era the server speaks.
         return _resp(mid, result={
-            "protocolVersion": PROTOCOL_VERSION,   # we answer with OUR version
+            "supportedVersions": list(SUPPORTED_VERSIONS),
+            "capabilities": {"tools": {}},
+            "_meta": {_META_SERVER_INFO: {"name": "homestead-memory",
+                                          "version": __version__}},
+            "instructions": ("Local-first memory for AI agents. Search, read and write a "
+                             "markdown vault on this machine, and score its integrity."),
+        })
+
+    if method == "initialize":
+        # Legacy handshake. Echo the version the client asked for when this server speaks
+        # it, which is what the legacy spec requires. Otherwise answer with our preferred
+        # legacy revision and let the client decide whether to continue.
+        state.initialize_seen = True
+        asked = None
+        params = msg.get("params")
+        if isinstance(params, dict) and isinstance(params.get("protocolVersion"), str):
+            asked = params["protocolVersion"]
+        answer = asked if asked in LEGACY_VERSIONS else PREFERRED_LEGACY
+        return _resp(mid, result={
+            "protocolVersion": answer,
             "capabilities": {"tools": {}},
             "serverInfo": {"name": "homestead-memory", "version": __version__}})
     if method == "ping":
         return _resp(mid, result={})
-    if not state.initialized:
+    # Legacy lifecycle gate. Modern requests carry a version and are stateless, so they
+    # are exempt: requiring a handshake from them would be the old era leaking forward.
+    if requested is None and not state.initialized:
         return _resp(mid, error=_err(-32002, "server not initialized"))
 
     if method == "tools/list":           # cursor ignored; nextCursor omitted
