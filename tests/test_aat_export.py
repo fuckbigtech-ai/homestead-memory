@@ -84,14 +84,31 @@ def test_trust_level_is_honest_about_what_we_can_see(exported):
 
 
 def test_signature_is_p1363_not_der():
-    """Section 6.2: Base64url, IEEE P1363 fixed r||s, 64 bytes. DER fails silently."""
+    """Section 6.2: Base64url, IEEE P1363 fixed r||s, 64 bytes. DER fails silently.
+
+    This test used to assert `raw[:1] != b"\x30"`, reading a leading 0x30 as the DER
+    SEQUENCE tag. That is unsound and it FLAKED IN CI on 2026-09-09. In P1363 the first
+    byte is the most significant byte of r, which is uniformly random, so the check fails
+    on roughly 1 run in 256 by chance. Across a six-cell matrix that is about 2.3% per
+    push, which is frequent enough to train people to ignore a red build.
+
+    The length assertion already settles it: DER ECDSA signatures are 70 to 72 bytes and
+    are never exactly 64. Randomness is removed entirely by signing with a FIXED key, and
+    the DER question is asked directly instead of by a byte heuristic.
+    """
     ec = pytest.importorskip("cryptography.hazmat.primitives.asymmetric.ec")
-    key = ec.generate_private_key(ec.SECP256R1())
+    from cryptography.hazmat.primitives.asymmetric import utils as au
+
+    # a fixed scalar, so this test is deterministic rather than 1-in-256 flaky
+    key = ec.derive_private_key(0x1234_5678_9ABC_DEF0_1234_5678_9ABC_DEF0, ec.SECP256R1())
     raw = base64.urlsafe_b64decode(
         (sig := aat.sign_p1363(hashlib.sha256(b"x").digest(), key)) + "=" * (-len(sig) % 4))
 
     assert len(raw) == 64, f"P1363 r||s is exactly 64 bytes, got {len(raw)}"
-    assert raw[:1] != b"\x30", "0x30 means DER was emitted; conformant verifiers reject it"
+
+    # the real question: a P1363 blob must NOT parse as a DER signature
+    with pytest.raises(Exception):
+        au.decode_dss_signature(raw)
 
 
 def test_signature_verifies_after_round_tripping_back_to_der():
