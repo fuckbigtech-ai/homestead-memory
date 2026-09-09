@@ -537,6 +537,20 @@ def build_parser() -> argparse.ArgumentParser:
                     help="with --verify, also require this Ed25519 public key")
     pc.set_defaults(func=cmd_checkpoint)
 
+    pi = sub.add_parser("import-session",
+                        help="import another harness's session into the ledger")
+    pi.add_argument("path", nargs="?", default=None,
+                    help="vault directory (default: $HSM_VAULT, else cwd)")
+    pi.add_argument("--harness", default="codex", choices=["codex"],
+                    help="which harness to import from")
+    pi.add_argument("--session", default=None, metavar="PATH",
+                    help="a specific rollout file (default: the most recent)")
+    pi.add_argument("-n", type=_non_negative, default=1,
+                    help="how many recent sessions to import (default 1)")
+    pi.add_argument("--dry-run", action="store_true",
+                    help="show what would be imported without writing")
+    pi.set_defaults(func=cmd_import_session)
+
     pw = sub.add_parser("watch", help="show what your agent actually did (the local ledger)")
     pw.add_argument("path", nargs="?", default=None)
     pw.add_argument("--demo", action="store_true",
@@ -717,7 +731,13 @@ def _print_ledger_rows(records) -> None:
         # it was invisible in the tool's own output. Records written before phase
         # capture carry none and render blank, so old ledgers are unchanged.
         phase = {"pre_execution": "pre", "post_execution": "post"}.get(r.get("phase"), "")
-        print(f"  {r.get('seq'):>5}  {when}  {phase:<4}  {tgt:<14} {summ[:70]}")
+        # An IMPORTED row was read from a file the harness wrote afterwards. A witnessed
+        # row was recorded as it happened. Presenting them identically would let the
+        # ledger imply it saw something it only read about later, which is the exact
+        # overclaim this project refuses everywhere else.
+        src = (r.get("meta") or {}).get("source") or ""
+        mark = " (imported)" if src else ""
+        print(f"  {r.get('seq'):>5}  {when}  {phase:<4}  {tgt:<14} {summ[:58]}{mark}")
 
 
 def _print_chain_problems(breaks, drops) -> int:
@@ -861,6 +881,60 @@ def _non_negative(raw: str) -> int:
     if n < 0:
         raise argparse.ArgumentTypeError(f"must be 0 or greater, got {n} (0 shows all)")
     return n
+
+
+def cmd_import_session(args) -> int:
+    """Import another harness's session into the ledger.
+
+    Named `import-session`, not `import`: `hsm import` already exists and brings MEMORIES
+    into the vault from Mem0, Zep and OKF. This brings SESSION RECORDS into the ledger.
+    Two different nouns, and collapsing them would break the older command.
+
+    Codex is the first non-Claude-Code harness. It is an IMPORT rather than a hook
+    because Codex's tool hooks did not fire under `codex exec` when measured, while its
+    rollout files record every call with its input, output and a pairing call_id.
+
+    Imported rows are marked `meta.source = codex-rollout` so the ledger never presents
+    a file read after the fact as something it witnessed live.
+    """
+    from .core import codex_import, ledger
+
+    if args.harness != "codex":
+        print(f"hsm import: unknown harness {args.harness!r} (supported: codex)",
+              file=sys.stderr)
+        return 2
+
+    if args.session:
+        paths = [Path(args.session)]
+        if not paths[0].exists():
+            print(f"hsm import: no such rollout: {paths[0]}", file=sys.stderr)
+            return 1
+    else:
+        found = codex_import.find_rollouts()
+        if not found:
+            print("hsm import: no Codex rollouts found under ~/.codex/sessions",
+                  file=sys.stderr)
+            return 1
+        paths = found[: args.n]
+
+    total = 0
+    for path in paths:
+        recs = codex_import.records_from_rollout(path)
+        if args.dry_run:
+            print(f"  {path.name}: {len(recs)} record(s)")
+            for r in recs[:6]:
+                print(f"    [{r['phase']:15}] {r['target']}  {str(r['summary'])[:60]}")
+        else:
+            for r in recs:
+                ledger.append(r.pop("action"), vault=args.path, **r)
+        total += len(recs)
+
+    verb = "would import" if args.dry_run else "imported"
+    print(f"{verb} {total} record(s) from {len(paths)} Codex session(s)")
+    if not args.dry_run and total:
+        print("These are marked source=codex-rollout. They were read from a file Codex")
+        print("wrote, not witnessed as they happened, and `hsm watch` says so.")
+    return 0
 
 
 def cmd_watch(args) -> int:

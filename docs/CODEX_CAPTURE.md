@@ -1,14 +1,37 @@
-# Codex capture: investigated 2026-09-09, NOT built, and why
+# Codex capture: investigated and BUILT 2026-09-09
 
 ## Verdict
 
-**Do not build Codex capture in the shape homestead-memory uses for Claude Code.** Codex
-fires tool hooks for **shell commands only**. A ledger that silently omits every file read,
-edit and write is not a smaller version of this product. It is a misleading one, and the
-whole claim is that the record is complete and that omissions are visible.
+**Built, as an import rather than a hook.** `hsm import-session --harness codex` reads
+Codex's rollout files and writes ledger records, each marked `meta.source=codex-rollout`.
 
-This document exists because the investigation reversed the plan. Recording that is worth
-more than a build that would have understated what an agent did.
+## This document reversed itself twice. Both reversals are kept.
+
+**First position: build it, Codex has the same hooks as Claude Code.** Wrong. That came
+from reading a third-party `~/.codex/hooks.json` and grepping strings out of the binary.
+Neither is a protocol contract.
+
+**Second position: do not build it, the hooks are shell-only so a Codex ledger would omit
+every file read and edit.** Also wrong, and wrong in a more interesting way. That reasoned
+from CLAUDE CODE's tool model, where Read, Edit and Write are separate tools and losing
+them is severe. **Codex has no such tools.** Measured across 60 real sessions and 848 tool
+calls on this machine:
+
+| tool | calls |
+|---|---:|
+| `exec` | **799 (94%)** |
+| `send_message` | 20 |
+| `request_user_input` | 13 |
+| everything else | 16 |
+
+Codex does its file work by shelling out. Shell coverage is near-total coverage FOR CODEX.
+The migration doc's "shell commands only" warning is addressed to people PORTING Claude
+Code hooks, not a claim that Codex agents act outside the shell.
+
+**Third position, and the one that shipped: import the rollouts.** Codex's PreToolUse and
+PostToolUse did not fire at all under `codex exec` when probed directly, matcher or no
+matcher. Its rollout files, however, record every call with input, output and a pairing
+`call_id`, which is strictly more than the hooks would have given.
 
 ## What prompted it
 
@@ -57,22 +80,30 @@ Shipping a Codex mode that omits the majority of actions **by design** would tur
 caveat into the normal case, on a product whose differentiator is that omissions are
 detectable rather than silent.
 
-## What would change the verdict
+## What an imported record cannot claim, and how that is enforced
 
-1. Codex extending `PreToolUse` / `PostToolUse` beyond shell commands to file operations.
-2. Or a different capture point for Codex entirely: its session rollout files under
-   `~/.codex/sessions/**/rollout-*.jsonl` record the full turn history. That is a
-   READ-AFTER-THE-FACT source, not a hook, so it cannot record the decision phase and it
-   inherits whatever the file says. It would need its own honest framing, closer to
-   "import a Codex session" than "capture what the agent did".
+A hook observes an action as it happens. An import reads a file the harness wrote
+afterwards, so it inherits whatever that file says and cannot prove the record is
+contemporaneous.
 
-Option 2 is the realistic path and it is a different feature, not a port.
+That difference is carried in the data, not just in documentation:
 
-## If it is built anyway
+- every imported row sets `meta.source = "codex-rollout"` and `meta.harness = "codex"`
+- `hsm watch` prints **(imported)** on those rows, so the distinction survives into the
+  output a person actually reads
+- an output whose call is missing is recorded with `meta.orphan = true` rather than
+  dropped, because a silent gap is the failure this project exists to catch
 
-It must be labelled at every surface as **"Codex: shell commands only"**, in the README, in
-`hsm hook --install` output, and in the ledger records themselves via a coverage field. A
-user must not be able to acquire a Codex ledger without knowing what is missing from it.
+## Usage
+
+    hsm import-session --dry-run          # newest Codex session, nothing written
+    hsm import-session -n 5               # the five most recent
+    hsm import-session --session <path>   # one specific rollout
+
+Named `import-session` because `hsm import` already exists and brings MEMORIES into the
+vault from Mem0, Zep and OKF. The first draft of this feature was also called `cmd_import`
+and would have shadowed that function silently, since it is defined later in the module. A
+test now pins both commands to their own handlers.
 
 ## Method note
 

@@ -221,10 +221,22 @@ number is reproducible rather than self-reported.
 does; the hooks that record *every* tool call use Claude Code's `PreToolUse` and
 `PostToolUse`. Cursor and Codex need their own mechanisms and those are not built yet.
 
-Codex specifically was investigated on 2026-09-09 and deliberately not built: its tool
-hooks fire for **shell commands only**, so a Codex ledger would silently omit every file
-read, edit and write. That is a misleading record rather than a partial one, and this
-project does not ship those. Reasoning in [`docs/CODEX_CAPTURE.md`](docs/CODEX_CAPTURE.md).
+**Codex is supported by import, not by hook**, since 0.4.1:
+
+```bash
+hsm import-session --dry-run     # newest Codex session, writes nothing
+hsm import-session -n 5          # the five most recent
+```
+
+Codex's tool hooks did not fire under `codex exec` when measured, but its rollout files
+record every call with input, output and a pairing id. Imported rows carry
+`meta.source=codex-rollout` and `hsm watch` prints **(imported)** beside them, because a
+row read from a file afterwards must never look like one witnessed as it happened.
+
+Coverage is high despite Codex's hooks being shell-only: Codex has no separate Read, Edit
+or Write tools and does its file work by shelling out. Measured over 60 sessions and 848
+tool calls, `exec` is 94% of them. Full reasoning, including two positions this project got
+wrong first, is in [`docs/CODEX_CAPTURE.md`](docs/CODEX_CAPTURE.md).
 
 ## Quickstart (60 seconds)
 
