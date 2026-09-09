@@ -221,6 +221,11 @@ number is reproducible rather than self-reported.
 does; the hooks that record *every* tool call use Claude Code's `PreToolUse` and
 `PostToolUse`. Cursor and Codex need their own mechanisms and those are not built yet.
 
+Codex specifically was investigated on 2026-09-09 and deliberately not built: its tool
+hooks fire for **shell commands only**, so a Codex ledger would silently omit every file
+read, edit and write. That is a misleading record rather than a partial one, and this
+project does not ship those. Reasoning in [`docs/CODEX_CAPTURE.md`](docs/CODEX_CAPTURE.md).
+
 ## Quickstart (60 seconds)
 
 ```bash
