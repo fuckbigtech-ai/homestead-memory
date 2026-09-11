@@ -486,7 +486,7 @@ experiment instead. No number here is from a harness you cannot run yourself.
 
 ## Status
 
-v0.4, building in public. Roadmap: [`ROADMAP.md`](ROADMAP.md). Break our benchmark:
+v0.5, building in public. Roadmap: [`ROADMAP.md`](ROADMAP.md). Break our benchmark:
 [`benchmarks/ROTBENCH.md`](benchmarks/ROTBENCH.md). Adversarial fixtures get merged.
 
 MIT © Kinetic Labs Inc. · a [FuckBigTech](https://fuckbigtech.ai) / HOMESTEAD project.

@@ -3,7 +3,7 @@
 Stop renting your mind. Own it, and catch it when it rots.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 __all__ = ["Memory", "connect", "__version__"]
 

@@ -1,5 +1,29 @@
 # Roadmap
 
+## v0.5: Codex sessions (shipped)
+
+Added 2026-09-11. Live capture is still Claude Code only. Codex is supported by IMPORT,
+read from its rollout files after the fact, and the two are deliberately not presented as
+the same thing.
+
+- [x] `core/codex_import.py`: read Codex rollout files
+      (`~/.codex/sessions/*/*/*/rollout-*.jsonl`), pairing `custom_tool_call` with its
+      `custom_tool_call_output` on `call_id`
+- [x] `hsm import-session`: bring those calls into the ledger. Named `import-session`
+      rather than `import`, because `hsm import` already brings in MEMORIES and silently
+      shadowing it would have been a data-loss path
+- [x] Imported rows carry `meta.source = "codex-rollout"` and `hsm watch` marks them
+      `(imported)`. A record read from a file afterwards must not look like one witnessed
+      as it happened
+- [x] Unpaired calls are recorded as orphans rather than dropped
+
+Why import and not a hook: Codex's own hooks did not fire under `codex exec` when probed,
+and its docs cover shell commands only. That matters less than it sounds, because Codex
+has no separate Read or Edit tools and does its file work by shelling out. Measured across
+60 local sessions: 848 tool calls, of which `exec` was 799 (94%).
+
+Cursor is still not built, and the docs must not imply otherwise.
+
 ## v0.3 and v0.4: the agent ledger (shipped)
 
 Added 2026-09-02. This file described a product two minor versions behind, and did not
