@@ -1,0 +1,44 @@
+## Does the artifact strangers actually receive back the claims we publish?
+##
+## Deliberately NOT part of the pre-release gate. Before a release the working tree
+## legitimately describes unreleased commands, so running this there would fail on normal
+## development. The question is only meaningful AFTER publication and while copy is live,
+## which is exactly the window where every past instance of this defect survived.
+name: published claims
+
+on:
+  schedule:
+    # Weekly. Drift here is slow and silent: nothing breaks, the docs simply stop being
+    # true for new installs, and no test anywhere notices.
+    - cron: "0 9 * * 1"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "published version to check (blank = latest on PyPI)"
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  claims:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: PyPI must back every command our docs name
+        # The dispatch input goes through the environment, never through shell
+        # interpolation. It is attacker-controlled in principle and quoting it inside
+        # `run:` would be an injection point for the sake of one optional argument.
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$VERSION" ]; then
+            python3 scripts/published_claims_gate.py --version "$VERSION"
+          else
+            python3 scripts/published_claims_gate.py
+          fi
