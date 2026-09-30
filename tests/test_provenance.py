@@ -2,6 +2,7 @@ import hashlib
 import json
 import re
 import socket
+from datetime import date, timedelta
 
 from homestead_memory import cli
 from homestead_memory.core import distill, provenance, temporal, verify
@@ -70,15 +71,19 @@ def test_temporal_history_recovers_provenance(tmp_path, capsys):
 
 
 def test_old_changelog_without_token_parses_and_scores_same(tmp_path):
-    for name, suffix in (("old", ""), ("new", " [agent=a session=s ts=2026-07-09T00:00:00+00:00]")):
+    # Dates are relative to today. They were fixed at 2026-07-01, which aged past the 90-day
+    # stale-source line on 2026-09-30 and turned this test red in the 0.5.1 release run
+    # without any code changing.
+    day = (date.today() - timedelta(days=7)).isoformat()
+    for name, suffix in (("old", ""), ("new", f" [agent=a session=s ts={day}T00:00:00+00:00]")):
         root = tmp_path / name
         root.mkdir()
         (root / "a.md").write_text(
-            "---\nname: a\nstatus: reference\nupdated: 2026-07-01\n---\nevidence\n")
+            f"---\nname: a\nstatus: reference\nupdated: {day}\n---\nevidence\n")
         (root / "user.md").write_text(
-            "---\nname: user\ntype: distilled\nupdated: 2026-07-01\n---\n\n# User\n\n"
+            f"---\nname: user\ntype: distilled\nupdated: {day}\n---\n\n# User\n\n"
             "- crm: HubSpot (source: a.md)\n\n## Changelog\n"
-            f"- 2026-07-01: recorded crm: \"HubSpot\" (source: a.md){suffix}\n")
+            f"- {day}: recorded crm: \"HubSpot\" (source: a.md){suffix}\n")
 
     old_entries = temporal.parse_changelog((tmp_path / "old" / "user.md").read_text())
     assert old_entries[0]["agent"] is None
