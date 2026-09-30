@@ -329,3 +329,22 @@ def test_spec_does_not_advertise_a_version_the_server_refuses():
         f"MCP_SPEC advertises {sorted(listed - set(mcp.SUPPORTED_VERSIONS))}, "
         f"which the server does not accept"
     )
+
+
+def test_modern_results_carry_required_fields(tmp_path):
+    """2026-07-28 requires resultType on every result and a cache hint on tools/list.
+    Without them Claude Code 2.1.285 rejected tools/list and the server exposed no tools."""
+    s = mcp.ServerState(tmp_path)
+    tl = mcp.handle_message(_modern("tools/list"), s)["result"]
+    assert tl["resultType"] == "complete" and tl["tools"]
+    assert isinstance(tl["ttlMs"], int) and tl["cacheScope"] in ("public", "private")
+    assert mcp.handle_message(_modern("ping"), s)["result"]["resultType"] == "complete"
+    assert mcp.handle_message(_modern("server/discover"), s)["result"]["resultType"] == "complete"
+
+
+def test_legacy_results_unchanged(tmp_path):
+    s = mcp.ServerState(tmp_path)
+    mcp.handle_message(_req("initialize", mid=0), s)
+    mcp.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"}, s)
+    r = mcp.handle_message(_req("tools/list"), s)["result"]
+    assert "resultType" not in r and "ttlMs" not in r

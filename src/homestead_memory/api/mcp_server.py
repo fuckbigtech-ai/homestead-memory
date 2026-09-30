@@ -310,9 +310,30 @@ class ServerState:
         self.initialized = False
 
 
+# The final 2026-07-28 schema makes `resultType` REQUIRED on every modern result, and list
+# results must carry a cache hint (`ttlMs`, `cacheScope`). Earlier revisions treat an absent
+# resultType as "complete", so legacy responses stay byte-identical. Found 2026-09-29: Claude
+# Code 2.1.285 negotiates modern with this server, rejects tools/list without these fields,
+# retries three times and gives up, so `hsm mcp` connected but exposed zero tools.
+RESULT_COMPLETE = "complete"
+TOOLS_TTL_MS = 300_000
+
+
 def handle_message(msg, state: ServerState):
     """Process ONE decoded JSON-RPC message. Returns a response dict, or None for
     notifications / undecodable structures without an id (per spec: no response)."""
+    out = _handle_message(msg, state)
+    if (out is not None and isinstance(out.get("result"), dict) and isinstance(msg, dict)
+            and (_requested_version(msg) is not None or msg.get("method") == "server/discover")):
+        out["result"].setdefault("resultType", RESULT_COMPLETE)
+        if msg.get("method") == "tools/list":
+            # tools are fixed per release; "private" because a local vault's tools are one user's
+            out["result"].setdefault("ttlMs", TOOLS_TTL_MS)
+            out["result"].setdefault("cacheScope", "private")
+    return out
+
+
+def _handle_message(msg, state: ServerState):
     if not isinstance(msg, dict):
         return None
     has_id, mid = "id" in msg, msg.get("id")
