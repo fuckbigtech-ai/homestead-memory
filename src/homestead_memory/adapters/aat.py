@@ -50,15 +50,27 @@ def record_hash(record: dict) -> str:
     return hashlib.sha256(jcs.canonicalize(payload)).hexdigest()
 
 
+# homestead-gate writes its verdicts into the ledger, so for its records the outcome is observed,
+# not guessed. "denied" is only ever put on the pre-execution decision record (draft section 4.2);
+# the post-execution record of an action that never ran is a "failure" to complete.
+_GATE_POST = {"gate.denied": "failure", "gate.expired": "timeout", "gate.failed": "failure"}
+
+
 def _outcome(rec: dict) -> str:
     """Map to the draft's closed vocabulary: success/failure/timeout/denied/escalated.
 
-    We record what the harness reported and cannot see a policy engine's verdict, so a
-    pre-execution record is not claimed as `denied` or `escalated`. Section 4.2 makes
-    those MUST be pre_execution, and asserting one we did not observe would be exactly
-    the overclaim this project exists to avoid.
+    For a harness record we see only what the harness reported, not a policy engine's verdict,
+    so a pre-execution record is not claimed as `denied` or `escalated`. Section 4.2 makes those
+    MUST be pre_execution, and asserting one we did not observe would be exactly the overclaim
+    this project exists to avoid. homestead-gate records are different: the gate IS the policy
+    engine and writes its decision, so a gate denial is exported as `denied`.
     """
     meta = rec.get("meta") or {}
+    action = rec.get("action") or ""
+    if action == "gate.decision" and rec.get("phase") == ledger.PHASE_PRE:
+        return "denied" if meta.get("decision") == "deny" else "success"
+    if action in _GATE_POST:
+        return _GATE_POST[action]
     response = meta.get("response") or {}
     if isinstance(response, dict):
         if response.get("error") or response.get("is_error"):
@@ -76,7 +88,8 @@ def to_aat(rec: dict, *, prev: dict | None, agent_version: str,
     """
     phase = _PHASE.get(rec.get("phase") or "", "post_execution")
     return {
-        "record_id": str(uuid.uuid4()),
+        # derived from the native record's own hash: the same ledger always exports the same ids
+        "record_id": str(uuid.uuid5(uuid.NAMESPACE_URL, f"hsm-record-{rec.get('hash') or json.dumps(rec, sort_keys=True)}")),
         "timestamp": rec.get("ts"),
         "agent_id": f"urn:hsm:agent:{rec.get('agent') or 'unknown'}",
         "agent_version": agent_version,

@@ -136,3 +136,43 @@ def test_exporting_does_not_touch_the_native_ledger(tmp_path):
     assert (tmp_path / ledger.LEDGER_REL).read_bytes() == before, \
         "the native ledger must be byte-identical after an AAT export"
     assert ledger.verify_chain(tmp_path) == []
+
+
+def _gate_ledger(tmp_path):
+    """The records homestead-gate writes for one denied and one executed action."""
+    pre, post = ledger.PHASE_PRE, ledger.PHASE_POST
+    for action, summary, meta, phase in (
+        ("gate.request", "request tx 0.01 ETH", {"request_id": "a"}, pre),
+        ("gate.decision", "human:deny", {"decision": "deny", "decided_by": "human:terminal", "request_id": "a"}, pre),
+        ("gate.denied", "not executed", {"reason": "human deny", "request_id": "a"}, post),
+        ("gate.request", "request email -> me", {"request_id": "b"}, pre),
+        ("gate.decision", "policy:approve", {"decision": "approve", "decided_by": "policy", "request_id": "b"}, pre),
+        ("gate.executed", "executed", {"request_id": "b"}, post),
+        ("gate.expired", "no answer", {"request_id": "c"}, post),
+    ):
+        ledger.append(action, target="gate:wallet_tx", summary=summary, meta=meta, vault=tmp_path,
+                      agent="homestead-gate", session="s1", phase=phase)
+
+
+def test_gate_denial_is_exported_as_denied_on_the_pre_execution_record(tmp_path):
+    """The gate IS the policy engine and writes its verdict, so here `denied` is observed, not guessed.
+    Before this, a payment the human refused was exported as `success`."""
+    _gate_ledger(tmp_path)
+    out = tmp_path / "aat.jsonl"
+    aat.aat_export(tmp_path, out_dir=out)
+    rs = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines()]
+    got = [(r["action_detail"]["target"], r["outcome"], r["record_phase"]) for r in rs]
+    assert ("human:deny", "denied", "pre_execution") in got
+    assert ("not executed", "failure", "post_execution") in got
+    assert ("policy:approve", "success", "pre_execution") in got
+    assert ("no answer", "timeout", "post_execution") in got
+    assert all(o != "denied" or p == "pre_execution" for _, o, p in got)
+
+
+def test_the_same_ledger_always_exports_the_same_record_ids(tmp_path):
+    _gate_ledger(tmp_path)
+    ids = []
+    for name in ("one.jsonl", "two.jsonl"):
+        aat.aat_export(tmp_path, out_dir=tmp_path / name)
+        ids.append([json.loads(l)["record_id"] for l in (tmp_path / name).read_text().splitlines()])
+    assert ids[0] == ids[1] and len(set(ids[0])) == len(ids[0])
