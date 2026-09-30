@@ -346,8 +346,16 @@ def test_modern_tools_call_results_carry_result_type(tmp_path):
     s = mcp.ServerState(tmp_path)
     ok = mcp.handle_message(_modern("tools/call", name="memory_verify", arguments={}), s)["result"]
     assert ok["resultType"] == "complete" and "ttlMs" not in ok
-    bad = mcp.handle_message(_modern("tools/call", name="memory_search", arguments={"query": 5}), s)
-    assert (bad.get("result") or {}).get("resultType", "complete") == "complete"
+    invalid = mcp.handle_message(_modern("tools/call", name="memory_search", arguments={"query": 5}), s)
+    assert invalid["error"]["code"] == -32602 and "result" not in invalid
+
+
+def test_modern_tool_failure_still_carries_result_type(tmp_path, monkeypatch):
+    def boom(*a, **k):
+        raise RuntimeError("tool blew up")
+    monkeypatch.setattr(mcp, "call_tool", boom)
+    r = mcp.handle_message(_modern("tools/call", name="memory_verify", arguments={}), mcp.ServerState(tmp_path))
+    assert r["result"]["isError"] is True and r["result"]["resultType"] == "complete"
 
 
 def test_modern_errors_get_no_result(tmp_path):
