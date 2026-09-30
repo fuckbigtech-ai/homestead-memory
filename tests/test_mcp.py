@@ -342,9 +342,33 @@ def test_modern_results_carry_required_fields(tmp_path):
     assert mcp.handle_message(_modern("server/discover"), s)["result"]["resultType"] == "complete"
 
 
+def test_modern_tools_call_results_carry_result_type(tmp_path):
+    s = mcp.ServerState(tmp_path)
+    ok = mcp.handle_message(_modern("tools/call", name="memory_verify", arguments={}), s)["result"]
+    assert ok["resultType"] == "complete" and "ttlMs" not in ok
+    bad = mcp.handle_message(_modern("tools/call", name="memory_search", arguments={"query": 5}), s)
+    assert (bad.get("result") or {}).get("resultType", "complete") == "complete"
+
+
+def test_modern_errors_get_no_result(tmp_path):
+    s = mcp.ServerState(tmp_path)
+    for msg in (_modern("tools/list", version="1999-01-01"), _modern("no/such/method")):
+        r = mcp.handle_message(msg, s)
+        assert "error" in r and "result" not in r
+
+
+def test_legacy_version_in_meta_gets_no_modern_fields(tmp_path):
+    s = mcp.ServerState(tmp_path)
+    r = mcp.handle_message(_modern("tools/list", version="2025-06-18"), s)["result"]
+    assert set(r) == {"tools"}
+
+
 def test_legacy_results_unchanged(tmp_path):
     s = mcp.ServerState(tmp_path)
-    mcp.handle_message(_req("initialize", mid=0), s)
+    init = mcp.handle_message(_req("initialize", mid=0), s)["result"]
     mcp.handle_message({"jsonrpc": "2.0", "method": "notifications/initialized"}, s)
-    r = mcp.handle_message(_req("tools/list"), s)["result"]
-    assert "resultType" not in r and "ttlMs" not in r
+    assert mcp.handle_message(_req("tools/list"), s)["result"] == {"tools": mcp.TOOLS}
+    ping = mcp.handle_message(_req("ping"), s)["result"]
+    call = mcp.handle_message(_req("tools/call", name="memory_verify", arguments={}), s)["result"]
+    for r in (init, ping, call):
+        assert not {"resultType", "ttlMs", "cacheScope"} & set(r)

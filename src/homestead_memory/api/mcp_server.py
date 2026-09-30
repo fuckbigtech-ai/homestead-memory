@@ -324,7 +324,8 @@ def handle_message(msg, state: ServerState):
     notifications / undecodable structures without an id (per spec: no response)."""
     out = _handle_message(msg, state)
     if (out is not None and isinstance(out.get("result"), dict) and isinstance(msg, dict)
-            and (_requested_version(msg) is not None or msg.get("method") == "server/discover")):
+            and (_requested_version(msg) not in (None, *LEGACY_VERSIONS)
+                 or msg.get("method") == "server/discover")):
         out["result"].setdefault("resultType", RESULT_COMPLETE)
         if msg.get("method") == "tools/list":
             # tools are fixed per release; "private" because a local vault's tools are one user's
